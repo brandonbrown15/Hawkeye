@@ -1,39 +1,26 @@
 # START HERE
 
-## One command
+## One command (Hawkeye / Jetson)
 
 ```bash
-git clone https://github.com/brandonbrown15/Autocode.git
-cd Autocode
+git clone https://github.com/brandonbrown15/Hawkeye.git
+cd Hawkeye
 ./start
 ```
 
 Answer a few questions. Wait. Done.
 
+Full details: **[README.md](README.md)** · private deploy: **[docs/hawkeye.md](docs/hawkeye.md)**
+
 ---
 
 ## What you need before `./start`
 
-1. **GitHub account**  
-   Easy path: token at https://github.com/settings/tokens?type=beta  
-   (Contents + Pull requests = Read and write)
-
-2. **Notion account** (free is fine) — pick one:
-
-   **A) Browser sign-in (like a plugin)** — best after one-time setup  
-   - Create a **Public** integration: https://www.notion.so/my-integrations  
-   - Redirect URI: `http://127.0.0.1:8765/callback`  
-   - Put `NOTION_OAUTH_CLIENT_ID` + `NOTION_OAUTH_CLIENT_SECRET` in `.env`  
-   - Then `./start` → choose browser sign-in (or run `./scripts/connect_notion.sh`)
-
-   **B) Paste a secret** (also fine)  
-   - Internal integration → copy Secret when `./start` asks
-
-   Either way, also: blank page **Autocode Hub** → **••• → Connections → Autocode** → paste page link
-
-3. **This computer on** (Jetson or Linux)
-
-Optional: big SSD (4TB). `./start` will try to use it automatically.
+1. **GitHub access** to private `brandonbrown15/Hawkeye`  
+2. **Notion** — internal integration (or OAuth) shared on **Hawkeye Build Queue** (+ ROSE Projects if used)  
+3. **This computer on** (Jetson Orin Nano Super recommended)  
+4. Optional: **4TB NVMe** — `./start` / bootstrap will park models, swap, and memory there  
+5. Optional: **Cloudflare** for `hawkeye.brownhawke.engineering` (Tunnel + DNS)
 
 ---
 
@@ -43,14 +30,16 @@ Optional: big SSD (4TB). `./start` will try to use it automatically.
 |---------|---------|
 | Open the dashboard | `./scripts/ui.sh` → http://127.0.0.1:8787/ |
 | Start on every boot | `./scripts/install_hawkeye_autostart.sh` |
+| Recreate local coder | `./ollama/create_coder_64k.sh` |
+| Better chat memory | `ollama pull nomic-embed-text` |
 | Remote phone view | `./scripts/ui.sh --remote` (Tailscale) |
-| Project autopilot until finished | set `AUTOCODE_CONTINUOUS_ENABLED=1` + `AUTOCODE_DRAIN_UNTIL_EMPTY=1` + `./cron/install_autopilot_timers.sh` |
-| See if it is healthy | `./scripts/doctor.sh` |
-| See what it is doing | `./scripts/status.sh` |
-| Pause it | `./scripts/control.sh pause` |
-| Add work | Notion → Build Queue → Status = **Ready** |
+| Public HTTPS | Cloudflare Tunnel (see README §7) |
+| Project autopilot | `AUTOCODE_AUTOPILOT_ENABLED=1` + `./cron/install_autopilot_timers.sh` |
+| Health | `./scripts/doctor.sh` |
+| Pause | `./scripts/control.sh pause` |
+| Add work | Notion → Hawkeye Build Queue → Status = **Ready** |
 
-Keep the first tasks tiny (fix typos, small docs). More: [docs/continuous.md](docs/continuous.md) · [docs/ui.md](docs/ui.md)
+Login: work emails `@brownhawke.engineering` only (`config/users.json`).
 
 ---
 
@@ -60,6 +49,6 @@ Keep the first tasks tiny (fix typos, small docs). More: [docs/continuous.md](do
 ./scripts/doctor.sh
 ```
 
-Read the **FAIL** lines. Fix those. Run `./start` again.
+Read the **FAIL** lines. Fix those. Run `./start` or `./scripts/bootstrap_jetson.sh` again.
 
-More detail: [docs/go-live.md](docs/go-live.md)
+More: [docs/go-live.md](docs/go-live.md) · [docs/jetson.md](docs/jetson.md) · [docs/pm.md](docs/pm.md)
