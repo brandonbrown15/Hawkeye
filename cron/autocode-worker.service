@@ -1,0 +1,14 @@
+[Unit]
+Description=Autocode continuous coding worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/autocode
+EnvironmentFile=-/opt/autocode/.env
+ExecStart=/opt/autocode/cron/worker_run.sh
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

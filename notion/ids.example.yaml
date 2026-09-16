@@ -1,0 +1,34 @@
+# Copy to ids.yaml (gitignored) after you create your Notion databases.
+# See docs/notion-setup.md for the required properties.
+
+hub_page: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+hub_url: "https://www.notion.so/your-workspace/your-hub-page"
+
+databases:
+  build_queue:
+    database_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  agent_runs:
+    database_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+  escalation_log:
+    database_id: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+
+# Property enums used by autopilot scripts (must match your Notion selects)
+build_queue:
+  status:
+    pick: Ready
+    claim: Running
+    review: Needs review
+    done: Done
+    blocked: Blocked
+  complexity_local: Local-safe
+  model_route_local: Local Hermes
+  priority_order: [P0, P1, P2, P3]
+
+agent_runs:
+  model_local: Local
+  outcomes: [Success, Partial, Failed, Escalated, Skipped]
+
+escalation_log:
+  status_open: Open
+  why: [Too complex, Tool fail, Tests failing, Needs secrets, Ambiguous]
+  send_to: [Claude, Grok Bot, Cursor Cloud, Human]

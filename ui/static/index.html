@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{{PRODUCT}} · BrownHawke Engineering</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@400;700&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/app.css" />
+</head>
+<body>
+  <div class="atmosphere" aria-hidden="true"></div>
+
+  <header class="top">
+    <div class="brand-block">
+      <img
+        class="logo"
+        src="/brand/brownhawke-logo.jpg"
+        alt="BrownHawke Engineering"
+        width="220"
+        height="211"
+      />
+      <div class="brand-copy">
+        <p class="product">{{PRODUCT}}</p>
+        <p class="tagline">Personal coding autopilot — free local LLM all day; Cursor &amp; Grok when it gets hard.</p>
+      </div>
+    </div>
+    <div class="live-chip" id="liveChip" data-phase="idle">
+      <span class="pulse" aria-hidden="true"></span>
+      <span id="phaseLabel">idle</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero-status" aria-labelledby="nowHeading">
+      <h1 id="nowHeading">What’s happening now</h1>
+      <p class="lede" id="statusLede">Loading status…</p>
+      <dl class="readout">
+        <div><dt>Task</dt><dd id="taskVal">—</dd></div>
+        <div><dt>Route</dt><dd id="routeVal">—</dd></div>
+        <div><dt>Heartbeat</dt><dd id="hbVal">—</dd></div>
+        <div><dt>Stuck?</dt><dd id="stuckVal">—</dd></div>
+      </dl>
+      <div class="actions" role="group" aria-label="Work controls">
+        <button type="button" class="btn primary" data-action="pause">Pause</button>
+        <button type="button" class="btn" data-action="resume">Resume</button>
+        <button type="button" class="btn danger" data-action="abort">Abort</button>
+        <button type="button" class="btn ghost" id="workBtn">Run work cycle</button>
+        <button type="button" class="btn ghost" id="demoBtn">Run mock cycle</button>
+      </div>
+      <form class="skip-row" id="skipForm">
+        <label for="skipId">Skip task id</label>
+        <input id="skipId" name="task_id" placeholder="BLD-12" autocomplete="off" />
+        <button type="submit" class="btn compact">Skip</button>
+      </form>
+    </section>
+
+    <section class="ready" aria-labelledby="readyHeading">
+      <h2 id="readyHeading">Ready checklist</h2>
+      <p class="section-note">Navy marks mean this Jetson (or Linux box) is ready to autopilot. Fix reds with the hints.</p>
+      <ul class="checks" id="checks"></ul>
+      <p class="meta" id="readyMeta"></p>
+    </section>
+
+
+    <section class="chat" aria-labelledby="chatHeading">
+      <h2 id="chatHeading">Talk to Autocode</h2>
+      <p class="section-note" id="chatNote">Local model is free all day. Hard asks escalate to Cursor / Grok Bot when those webhooks are set. Works from your phone over Tailscale or your private domain.</p>
+      <div id="chatLog" class="chat-log" role="log" aria-live="polite"></div>
+      <form class="chat-form" id="chatForm">
+        <label for="chatInput" class="sr-only">Message</label>
+        <textarea id="chatInput" rows="3" placeholder="e.g. Add a Ready task to harden the login rate limiter, then keep going." required></textarea>
+        <div class="chat-actions">
+          <button type="submit" class="btn primary" id="chatSend">Send</button>
+          <label class="check-inline"><input type="checkbox" id="chatSeed" checked /> Also add to Notion checklist when useful</label>
+        </div>
+      </form>
+    </section>
+
+    <section class="logs" aria-labelledby="logHeading">
+      <div class="log-head">
+        <h2 id="logHeading">Latest log</h2>
+        <span class="path" id="logPath"></span>
+      </div>
+      <pre id="logText" class="log-pane" tabindex="0">(waiting…)</pre>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p>BrownHawke Engineering · {{PRODUCT}} · private
+      · <button type="button" class="btn ghost compact" id="logoutBtn" hidden>Sign out</button>
+    </p>
+    <p id="toast" class="toast" role="status" aria-live="polite"></p>
+  </footer>
+
+  <script>window.__AUTOCODE_TOKEN__ = "{{TOKEN}}";</script>
+  <script src="/app.js"></script>
+</body>
+</html>

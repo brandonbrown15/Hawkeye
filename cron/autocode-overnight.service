@@ -1,0 +1,15 @@
+[Unit]
+Description=Autocode overnight Hermes coding autopilot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Adjust User= and paths on the Jetson
+WorkingDirectory=/opt/autocode
+EnvironmentFile=-/opt/autocode/.env
+ExecStart=/opt/autocode/cron/overnight_run.sh
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

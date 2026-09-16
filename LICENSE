@@ -1,0 +1,71 @@
+HAWKEYE PROPRIETARY SOFTWARE LICENSE
+
+Copyright (c) 2026 BrownHawke Engineering. All rights reserved.
+
+Product: Hawkeye
+Owner: BrownHawke Engineering
+Canonical deployment: https://hawkeye.brownhawke.engineering
+
+IMPORTANT — RELATIONSHIP TO AUTOCODE
+
+Hawkeye is a private, proprietary product derived in part from Autocode.
+The open-source Autocode project remains separately licensed under the
+Apache License, Version 2.0 (see NOTICE and the public Autocode repository).
+This license governs the Hawkeye repository as a whole, including
+Hawkeye-specific features, configuration, branding, and documentation.
+
+1. GRANT OF RIGHTS (PERSONAL / INTERNAL USE)
+
+Subject to the terms of this license, BrownHawke Engineering grants you
+(the copyright owner and authorized operators of this private repository)
+a non-exclusive, non-transferable right to use, modify, and run Hawkeye
+solely for personal or internal BrownHawke Engineering purposes.
+
+2. RESTRICTIONS
+
+Except as expressly permitted in writing by BrownHawke Engineering, you
+may not:
+
+  (a) publicly distribute, publish, sublicense, sell, lease, or otherwise
+      make Hawkeye (or substantial portions of it) available to third parties;
+  (b) remove or obscure proprietary notices, branding, or attribution;
+  (c) use Hawkeye trademarks or product names in a misleading way; or
+  (d) contribute Hawkeye-only secrets, password hashes, webhook URLs, or
+      personal deployment config back into the public Autocode project.
+
+3. CONFIDENTIALITY
+
+This repository is intended to remain private. Source code, credentials,
+domain/tunnel configuration, and operational details are confidential to
+BrownHawke Engineering unless you deliberately publish them.
+
+4. UPSTREAM ATTRIBUTION
+
+Portions of this software are based on Autocode, Copyright BrownHawke /
+Autocode contributors, licensed under Apache-2.0. Those upstream portions
+retain their Apache-2.0 notices as described in NOTICE. Nothing in this
+license attempts to relicense third-party Apache-2.0 code in a way that
+violates Apache-2.0; it asserts proprietary rights over the Hawkeye
+product and private modifications as a combined work distributed privately.
+
+5. NO WARRANTY
+
+HAWKEYE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL
+BROWNHAWKE ENGINEERING BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER
+LIABILITY ARISING FROM USE OF HAWKEYE.
+
+6. TERMINATION
+
+Any violation of these terms terminates the rights granted in Section 1.
+Upon termination, cease use of Hawkeye copies obtained under this license
+except as required for archival or legal compliance.
+
+7. CONTACT
+
+BrownHawke Engineering — https://brownhawke.engineering
+Hawkeye — https://hawkeye.brownhawke.engineering
+
+For questions about licensing or commercial use outside personal/internal
+BrownHawke Engineering use, contact the copyright owner.
