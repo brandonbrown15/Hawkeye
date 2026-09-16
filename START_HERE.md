@@ -3,10 +3,12 @@
 ## One command (Hawkeye / Jetson)
 
 ```bash
-git clone https://github.com/brandonbrown15/Hawkeye.git
-cd Hawkeye
+git clone https://github.com/brandonbrown15/Hawkeye.git ~/Hawkeye
+cd ~/Hawkeye
 ./start
 ```
+
+If you see `Permission denied` under `/opt`, clone to `~/Hawkeye` instead (no sudo).
 
 Answer a few questions. Wait. Done.
 
