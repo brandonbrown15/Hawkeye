@@ -53,7 +53,7 @@ Always-on:
 ```bash
 # in .env
 AUTOCODE_UI_REMOTE=1
-./cron/install_autopilot_timers.sh   # enables autocode-ui.service
+./scripts/install_hawkeye_autostart.sh   # hawkeye-ui.service on boot
 ```
 
 Optional: `tailscale serve` / `tailscale funnel` if you want HTTPS on your Tailnet.
