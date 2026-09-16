@@ -42,6 +42,7 @@ Optional: big SSD (4TB). `./start` will try to use it automatically.
 | Do this | Command |
 |---------|---------|
 | Open the dashboard | `./scripts/ui.sh` → http://127.0.0.1:8787/ |
+| Start on every boot | `./scripts/install_hawkeye_autostart.sh` |
 | Remote phone view | `./scripts/ui.sh --remote` (Tailscale) |
 | Project autopilot until finished | set `AUTOCODE_CONTINUOUS_ENABLED=1` + `AUTOCODE_DRAIN_UNTIL_EMPTY=1` + `./cron/install_autopilot_timers.sh` |
 | See if it is healthy | `./scripts/doctor.sh` |

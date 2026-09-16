@@ -26,6 +26,7 @@ cd Hawkeye
 python3 scripts/set_private_password.py   # paste hash into .env
 # set CURSOR_WEBHOOK_URL + GROK_BOT_WEBHOOK_URL in .env
 ./scripts/ui.sh
+./scripts/install_hawkeye_autostart.sh   # UI (+ tunnel) on every boot
 # Cloudflare Tunnel → https://hawkeye.brownhawke.engineering
 ```
 

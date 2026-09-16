@@ -1,4 +1,4 @@
-# coder-64k — tool-capable local coder with 64k context for Hermes.
+# coder-64k — Hawkeye local coder (64k context) for UI chat + Hermes.
 # Base model: pick a Jetson-fitting tool-capable 3B–7B (override with BASE_MODEL env).
 # Create with: ./create_coder_64k.sh
 

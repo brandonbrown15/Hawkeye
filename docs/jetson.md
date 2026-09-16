@@ -41,6 +41,7 @@ See [go-live.md](go-live.md).
 - `coder-64k` Modelfile with `num_ctx 65536`
 - `OLLAMA_KEEP_ALIVE=24h`
 - Smoke `/v1/chat/completions`
+- Boot auto-start: `./scripts/install_hawkeye_autostart.sh` (UI + Ollama; tunnel when configured)
 
 **Gotcha:** Ollama `/v1` often ignores per-request `num_ctx`. Prefer Modelfile `PARAMETER num_ctx`, `OLLAMA_CONTEXT_LENGTH`, and Hermes native `/api/chat`. Verify with `ollama ps`.
 
