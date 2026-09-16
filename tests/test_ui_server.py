@@ -35,12 +35,16 @@ class UiHelpersTests(unittest.TestCase):
             "AUTOCODE_PRODUCT_NAME",
             "CURSOR_WEBHOOK_URL",
             "GROK_BOT_WEBHOOK_URL",
+            "HAWKEYE_USERS_FILE",
+            "HAWKEYE_ALLOWED_EMAIL_DOMAIN",
+            "HAWKEYE_USERS_JSON",
         )}
         for k in self._env:
             os.environ.pop(k, None)
         os.environ["AUTOCODE_PRODUCT_NAME"] = "Hawkeye"
         os.environ["AUTOCODE_PRIVATE_MODE"] = "0"
         ui_auth.clear_sessions()
+        ui_auth.clear_users_cache()
         ops.STATUS_PATH = self.tmp / "status.json"
         ops.CONTROL_PATH = self.tmp / "control.json"
         ui_server._demo_log = self.tmp / "ui-demo.log"
@@ -56,7 +60,7 @@ class UiHelpersTests(unittest.TestCase):
             else:
                 os.environ[k] = v
         ui_auth.clear_sessions()
-
+        ui_auth.clear_users_cache()
     def test_snapshot_and_control(self) -> None:
         ops.write_status(phase="running_local", task_id="BLD-1", task_name="docs", route="local")
         snap = ui_server.snapshot()
@@ -146,8 +150,23 @@ class UiHelpersTests(unittest.TestCase):
 
     def test_private_login_gate(self) -> None:
         os.environ["AUTOCODE_PRIVATE_MODE"] = "1"
-        os.environ["AUTOCODE_PRIVATE_USER"] = "brown"
-        os.environ["AUTOCODE_PRIVATE_PASSWORD_HASH"] = ui_auth.hash_password("secret-pass")
+        os.environ["HAWKEYE_ALLOWED_EMAIL_DOMAIN"] = "brownhawke.engineering"
+        users_path = self.tmp / "users.json"
+        users_path.write_text(
+            json.dumps(
+                {
+                    "allowed_domain": "brownhawke.engineering",
+                    "users": {
+                        "brandon@brownhawke.engineering": ui_auth.hash_password("secret-pass"),
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        os.environ["HAWKEYE_USERS_FILE"] = str(users_path)
+        os.environ.pop("AUTOCODE_PRIVATE_USER", None)
+        os.environ.pop("AUTOCODE_PRIVATE_PASSWORD_HASH", None)
+        ui_auth.clear_users_cache()
         ui_auth.clear_sessions()
 
         httpd = ui_server.ThreadingHTTPServer(("127.0.0.1", 0), ui_server.Handler)
@@ -162,10 +181,26 @@ class UiHelpersTests(unittest.TestCase):
             with request.urlopen(f"http://127.0.0.1:{port}/login", timeout=5) as resp:
                 login_html = resp.read().decode()
             self.assertIn("Hawkeye", login_html)
+            self.assertIn("brownhawke.engineering", login_html)
+
+            # Outside domain rejected
+            outside = request.Request(
+                f"http://127.0.0.1:{port}/api/login",
+                data=json.dumps(
+                    {"email": "brandon@gmail.com", "password": "secret-pass"}
+                ).encode(),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with self.assertRaises(error.HTTPError) as ctx:
+                request.urlopen(outside, timeout=5)
+            self.assertEqual(ctx.exception.code, 401)
 
             bad = request.Request(
                 f"http://127.0.0.1:{port}/api/login",
-                data=json.dumps({"username": "brown", "password": "nope"}).encode(),
+                data=json.dumps(
+                    {"email": "brandon@brownhawke.engineering", "password": "nope"}
+                ).encode(),
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
@@ -175,7 +210,12 @@ class UiHelpersTests(unittest.TestCase):
 
             good = request.Request(
                 f"http://127.0.0.1:{port}/api/login",
-                data=json.dumps({"username": "brown", "password": "secret-pass"}).encode(),
+                data=json.dumps(
+                    {
+                        "email": "Brandon@brownhawke.engineering",
+                        "password": "secret-pass",
+                    }
+                ).encode(),
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
@@ -195,6 +235,21 @@ class UiHelpersTests(unittest.TestCase):
         finally:
             httpd.shutdown()
             httpd.server_close()
+
+    def test_work_email_domain_and_users_file(self) -> None:
+        path = ROOT / "config" / "users.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        digest = data["users"]["brandon@brownhawke.engineering"]
+        self.assertTrue(digest.startswith("pbkdf2_sha256$"))
+        self.assertTrue(ui_auth.is_allowed_email("brandon@brownhawke.engineering"))
+        self.assertTrue(ui_auth.is_allowed_email("Brandon@BrownHawke.engineering"))
+        self.assertFalse(ui_auth.is_allowed_email("brandon@gmail.com"))
+        os.environ["HAWKEYE_USERS_FILE"] = str(path)
+        os.environ.pop("AUTOCODE_PRIVATE_USER", None)
+        os.environ.pop("AUTOCODE_PRIVATE_PASSWORD_HASH", None)
+        ui_auth.clear_users_cache()
+        users = ui_auth.load_users(reload=True)
+        self.assertIn("brandon@brownhawke.engineering", users)
 
     def test_chat_escalates_to_cursor_webhook(self) -> None:
         os.environ["CURSOR_WEBHOOK_URL"] = "http://example.invalid/cursor"

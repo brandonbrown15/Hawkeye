@@ -21,19 +21,22 @@ Hawkeye / Autocode is designed so the **public Autocode git repo never holds sec
 
 ## Hawkeye baseline (login + tunnel + memory)
 
-### 1. Login
+### 1. Login (work email only)
+
+Only `@brownhawke.engineering` addresses can sign in. Password hashes live in
+`config/users.json` (never commit plaintext passwords).
 
 ```bash
-python3 scripts/set_private_password.py
-# paste into .env:
+python3 scripts/set_work_user.py --email teammate@brownhawke.engineering
+# .env:
 AUTOCODE_PRIVATE_MODE=1
-AUTOCODE_PRIVATE_USER=brown
-AUTOCODE_PRIVATE_PASSWORD_HASH=pbkdf2_sha256$...
+HAWKEYE_ALLOWED_EMAIL_DOMAIN=brownhawke.engineering
+HAWKEYE_USERS_FILE=config/users.json
 AUTOCODE_UI_SECURE=1
 AUTOCODE_PUBLIC_HOST=hawkeye.brownhawke.engineering
 ```
 
-Use a long unique password. The UI binds to `127.0.0.1` by default.
+Mail forwarding for those addresses: [email-routing.md](email-routing.md).
 
 ### 2. Tunnel-only exposure
 

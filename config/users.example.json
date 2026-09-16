@@ -1,0 +1,6 @@
+{
+  "allowed_domain": "brownhawke.engineering",
+  "users": {
+    "teammate@brownhawke.engineering": "pbkdf2_sha256$120000$REPLACE_SALT$REPLACE_DIGEST"
+  }
+}

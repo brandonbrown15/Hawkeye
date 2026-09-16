@@ -23,17 +23,20 @@ chmod +x scripts/publish_hawkeye_private.sh
 
 ## 2. Turn on login + product name
 
+Work emails only (`@brownhawke.engineering`). Brandon is seeded in `config/users.json`.
+Add teammates:
+
 ```bash
-python3 scripts/set_private_password.py
+python3 scripts/set_work_user.py --email alex@brownhawke.engineering
 ```
 
-Paste into `.env`:
+`.env`:
 
 ```bash
 AUTOCODE_PRODUCT_NAME=Hawkeye
 AUTOCODE_PRIVATE_MODE=1
-AUTOCODE_PRIVATE_USER=brown
-AUTOCODE_PRIVATE_PASSWORD_HASH=pbkdf2_sha256$...
+HAWKEYE_ALLOWED_EMAIL_DOMAIN=brownhawke.engineering
+HAWKEYE_USERS_FILE=config/users.json
 AUTOCODE_PERSONAL_LOCAL_ONLY=0
 AUTOCODE_LOCAL_ONLY=0
 AUTOCODE_COST_PROFILE=cursor-grok
@@ -45,7 +48,7 @@ AUTOCODE_PUBLIC_HOST=hawkeye.brownhawke.engineering
 AUTOCODE_UI_SECURE=1
 ```
 
-`AUTOCODE_PERSONAL_LOCAL_ONLY=1` only if you want to **disable** premium escalate (rare).
+Set up `brandon@brownhawke.engineering` → Outlook forwarding: [email-routing.md](email-routing.md).
 
 ## 3. Domain — `hawkeye.brownhawke.engineering`
 

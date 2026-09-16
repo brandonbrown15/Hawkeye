@@ -174,9 +174,9 @@ def readiness() -> dict[str, Any]:
         checks.append(
             {
                 "id": "private_auth",
-                "label": "Private login configured",
+                "label": f"Work login (@{ui_auth.allowed_email_domain()})",
                 "ok": ui_auth.credentials_ready(),
-                "hint": "python3 scripts/set_private_password.py → set AUTOCODE_PRIVATE_PASSWORD_HASH",
+                "hint": "python3 scripts/set_work_user.py --email you@brownhawke.engineering",
             }
         )
     memory_stats: dict[str, Any] | None = None
@@ -884,6 +884,7 @@ class Handler(BaseHTTPRequestHandler):
                         "personal_local_only": ui_auth.personal_local_only(),
                         "product": ui_auth.product_name(),
                         "public_host": ui_auth.public_host(),
+                        "allowed_email_domain": ui_auth.allowed_email_domain(),
                         "authed": self._authed(),
                     }
                 )
@@ -929,15 +930,26 @@ class Handler(BaseHTTPRequestHandler):
                     *json_response(
                         {
                             "ok": False,
-                            "error": "Set AUTOCODE_PRIVATE_PASSWORD_HASH first "
-                            "(python3 scripts/set_private_password.py)",
+                            "error": "No work users configured. "
+                            "Add @brownhawke.engineering accounts via "
+                            "python3 scripts/set_work_user.py --email …",
                         },
                         503,
                     )
                 )
-            sess = ui_auth.login(str(data.get("username") or ""), str(data.get("password") or ""))
+            email = str(data.get("email") or data.get("username") or "")
+            sess = ui_auth.login(email, str(data.get("password") or ""))
             if not sess:
-                return self._send(*json_response({"ok": False, "error": "Invalid username or password"}, 401))
+                return self._send(
+                    *json_response(
+                        {
+                            "ok": False,
+                            "error": f"Invalid email or password "
+                            f"(only @{ui_auth.allowed_email_domain()} allowed)",
+                        },
+                        401,
+                    )
+                )
             return self._send(
                 *json_response({"ok": True, "token": TOKEN}),
                 extra_headers=[
@@ -1016,8 +1028,8 @@ def main() -> None:
     if ui_auth.private_mode_enabled():
         print(f"Public host (tunnel): https://{ui_auth.public_host()}/")
     if ui_auth.private_mode_enabled() and not ui_auth.credentials_ready():
-        print("WARNING: AUTOCODE_PRIVATE_MODE=1 but password hash missing.")
-        print("         Run: python3 scripts/set_private_password.py")
+        print("WARNING: AUTOCODE_PRIVATE_MODE=1 but no work users configured.")
+        print("         Run: python3 scripts/set_work_user.py --email you@brownhawke.engineering")
     print("Press Ctrl+C to stop.")
     try:
         httpd.serve_forever()

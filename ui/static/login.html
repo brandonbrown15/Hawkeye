@@ -72,9 +72,9 @@
     <form class="login-card" id="loginForm">
       <img class="login-logo" src="/brand/brownhawke-logo.jpg" alt="BrownHawke Engineering" width="72" height="69" />
       <h1>{{PRODUCT}}</h1>
-      <p>Your personal Jetson LLM at hawkeye.brownhawke.engineering — free local all day; Cursor &amp; Grok take the hard jobs. Sign in to continue.</p>
-      <label for="user">Username</label>
-      <input id="user" name="username" autocomplete="username" required />
+      <p>BrownHawke Engineering work platform — <code>@brownhawke.engineering</code> email required. Free local model all day; Cursor &amp; Grok take the hard jobs.</p>
+      <label for="user">Work email</label>
+      <input id="user" name="email" type="email" autocomplete="username" placeholder="you@brownhawke.engineering" required />
       <label for="pass">Password</label>
       <input id="pass" name="password" type="password" autocomplete="current-password" required />
       <button class="btn primary" type="submit">Sign in</button>
@@ -86,13 +86,13 @@
       ev.preventDefault();
       const err = document.getElementById("err");
       err.textContent = "";
-      const username = document.getElementById("user").value.trim();
+      const email = document.getElementById("user").value.trim();
       const password = document.getElementById("pass").value;
       try {
         const r = await fetch("/api/login", {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ username, password }),
+          body: JSON.stringify({ email, username: email, password }),
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok || data.ok === false) {
