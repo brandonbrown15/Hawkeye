@@ -342,7 +342,9 @@ Notion handoff (workspace): see **Hawkeye** hub → *Handoff — Hawkeye Cursor 
 
 | Symptom | Likely cause |
 |---------|----------------|
+| `Password authentication is not supported` / `Invalid username or token` | Used GitHub account password — paste a **PAT** as the password, or use `gh auth login` / SSH |
 | `Permission denied` cloning to `/opt/hawkeye` | Need sudo ownership, **or** clone to `~/Hawkeye` instead |
+| `syntax error near unexpected token '('` | Pasted a Markdown comment line (`# Recommended — …`) — paste only the `git` / `cd` / `./scripts/...` lines |
 | `hawkeye.brownhawke.engineering` won’t load | DNS/tunnel not created yet, **or** Jetson/cloudflared offline |
 | UI asks for login / rejects email | Must be `@brownhawke.engineering`; check `config/users.json` |
 | Empty / sample board | Missing `NOTION_TOKEN` or integration not shared on the DB |
