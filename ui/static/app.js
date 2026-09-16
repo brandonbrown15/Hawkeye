@@ -2,6 +2,12 @@
   const token = window.__AUTOCODE_TOKEN__ || "";
   const toastEl = document.getElementById("toast");
   let toastTimer = null;
+  let currentBoard = "hawkeye";
+  let boardCache = null;
+  let selectedTask = null;
+
+  const BUILD_STATUSES = ["Ready", "Running", "Needs review", "Blocked", "Backlog", "Done"];
+  const ROSE_STATUSES = ["Now", "Next", "Blocked", "Done", "Parked"];
 
   function toast(msg) {
     toastEl.textContent = msg || "";
@@ -55,13 +61,13 @@
     if (snap.stuck) return "Heartbeat is stale while a task is running — it may be stuck.";
     switch (st.phase) {
       case "idle":
-        return "Idle. Autocode will keep draining Ready Notion tasks until the project is finished. Add work, run a cycle, or try a mock.";
+        return "Idle. Hawkeye drains Ready Notion tasks for the team. Add work on the board or ask in chat.";
       case "starting":
         return "Work cycle is starting…";
       case "routing":
         return `Choosing a route for ${st.task_id || "the next task"}…`;
       case "running_local":
-        return `Local Hermes is working on ${st.task_name || st.task_id || "a task"}.`;
+        return `Local model is working on ${st.task_name || st.task_id || "a task"}.`;
       case "escalating":
         return `Escalating ${st.task_id || "a task"} to ${st.route || "cloud / human"}.`;
       case "done":
@@ -92,6 +98,7 @@
 
   function renderReady(data) {
     const ul = document.getElementById("checks");
+    if (!ul) return;
     ul.innerHTML = "";
     for (const c of data.checks || []) {
       const li = document.createElement("li");
@@ -109,32 +116,205 @@
     const bits = [
       data.ready ? "Core stack looks ready" : "Finish the red checklist items",
       `product=${data.product || "Hawkeye"}`,
-      `profile=${data.cost_profile || "?"}`,
-      data.personal_local_only
-        ? "local-only (escalate off)"
-        : data.local_only
-          ? "local-first (task cloud off)"
-          : "local-first → Cursor/Grok",
       data.private_mode ? "login ON" : null,
       data.autopilot ? "autopilot ON" : "autopilot off",
-      data.continuous ? "continuous ON" : "continuous off",
     ].filter(Boolean);
-    document.getElementById("readyMeta").textContent = bits.join(" · ");
-
-    const chatNote = document.getElementById("chatNote");
-    if (chatNote && data.private_mode && !data.personal_local_only) {
-      const host = data.public_host || "hawkeye.brownhawke.engineering";
-      chatNote.textContent =
-        `${data.product || "Hawkeye"} @ ${host}: free local LLM all day; Cursor & Grok Bot take strenuous asks.`;
-    }
+    const readyMeta = document.getElementById("readyMeta");
+    if (readyMeta) readyMeta.textContent = bits.join(" · ");
   }
 
   function renderLogs(data) {
-    document.getElementById("logPath").textContent = data.path || "";
-    document.getElementById("logText").textContent = data.text || "(empty)";
+    const path = document.getElementById("logPath");
+    const text = document.getElementById("logText");
+    if (path) path.textContent = data.path || "";
+    if (text) text.textContent = data.text || "(empty)";
   }
 
-  async function refresh() {
+  function columnOrder(boardKind, counts) {
+    const preferred = boardKind === "projects" ? ROSE_STATUSES : BUILD_STATUSES;
+    const keys = Object.keys(counts || {});
+    const ordered = preferred.filter((s) => keys.includes(s) || preferred.includes(s));
+    for (const k of keys) {
+      if (!ordered.includes(k)) ordered.push(k);
+    }
+    // Always show core columns even if empty
+    for (const s of preferred.slice(0, 4)) {
+      if (!ordered.includes(s)) ordered.push(s);
+    }
+    return ordered;
+  }
+
+  function renderBoardTabs(boards) {
+    const tabs = document.getElementById("boardTabs");
+    if (!tabs) return;
+    tabs.innerHTML = "";
+    for (const b of boards || []) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "board-tab";
+      btn.setAttribute("role", "tab");
+      btn.setAttribute("aria-selected", b.id === currentBoard ? "true" : "false");
+      btn.textContent = b.name;
+      btn.dataset.board = b.id;
+      btn.addEventListener("click", () => {
+        currentBoard = b.id;
+        loadBoard();
+      });
+      tabs.appendChild(btn);
+    }
+  }
+
+  function renderKanban(data) {
+    const board = data.board || {};
+    const tasks = data.tasks || [];
+    const counts = data.counts || {};
+    const filter = document.getElementById("statusFilter").value || "all";
+    const visible = filter === "all" ? tasks : tasks.filter((t) => t.status === filter);
+
+    const meta = document.getElementById("boardMeta");
+    const bits = [
+      `${visible.length} task${visible.length === 1 ? "" : "s"}`,
+      board.name || currentBoard,
+      data.mock || data.offline ? "sample / offline data" : "live from Notion",
+    ];
+    if (data.warning) bits.push(data.warning);
+    meta.textContent = bits.join(" · ");
+
+    const banner = document.getElementById("pmBanner");
+    if (data.offline || data.warning) {
+      banner.hidden = false;
+      banner.textContent = data.warning
+        || "Notion token not connected on this machine — showing sample board. Connect with ./scripts/connect_notion.sh for live team data.";
+    } else {
+      banner.hidden = true;
+    }
+
+    const pills = document.getElementById("countPills");
+    pills.innerHTML = "";
+    for (const [status, n] of Object.entries(counts)) {
+      const span = document.createElement("span");
+      span.className = "count-pill";
+      span.textContent = `${status}: ${n}`;
+      pills.appendChild(span);
+    }
+
+    const kanban = document.getElementById("kanban");
+    kanban.innerHTML = "";
+    const cols = filter === "all"
+      ? columnOrder(board.kind, counts)
+      : [filter];
+
+    for (const status of cols) {
+      const colTasks = visible.filter((t) => (t.status || "Unknown") === status);
+      const col = document.createElement("div");
+      col.className = "kanban-col";
+      const h = document.createElement("h3");
+      h.innerHTML = `${status}<span class="col-count">${colTasks.length}</span>`;
+      col.appendChild(h);
+      for (const t of colTasks) {
+        const card = document.createElement("button");
+        card.type = "button";
+        card.className = "task-card";
+        card.innerHTML = `
+          <p class="tid">${t.task_id || "—"}</p>
+          <p class="tname"></p>
+          <div class="tmeta"></div>
+        `;
+        card.querySelector(".tname").textContent = t.name || "(untitled)";
+        const metaEl = card.querySelector(".tmeta");
+        if (t.priority) {
+          const c = document.createElement("span");
+          c.className = `chip ${(t.priority || "").toLowerCase()}`;
+          c.textContent = t.priority;
+          metaEl.appendChild(c);
+        }
+        if (t.area) {
+          const c = document.createElement("span");
+          c.className = "chip";
+          c.textContent = t.area;
+          metaEl.appendChild(c);
+        }
+        if (t.complexity) {
+          const c = document.createElement("span");
+          c.className = "chip";
+          c.textContent = t.complexity;
+          metaEl.appendChild(c);
+        }
+        card.addEventListener("click", () => openDrawer(t, board.kind));
+        col.appendChild(card);
+      }
+      if (!colTasks.length) {
+        const empty = document.createElement("p");
+        empty.className = "section-note";
+        empty.textContent = "No tasks";
+        col.appendChild(empty);
+      }
+      kanban.appendChild(col);
+    }
+  }
+
+  function openDrawer(task, boardKind) {
+    selectedTask = task;
+    const drawer = document.getElementById("taskDrawer");
+    drawer.hidden = false;
+    document.getElementById("drawerId").textContent = task.task_id || task.page_id;
+    document.getElementById("drawerTitle").textContent = task.name || "(untitled)";
+    document.getElementById("drawerAccept").textContent = task.acceptance || "";
+    document.getElementById("drawerNotes").textContent = task.notes || "";
+    const meta = document.getElementById("drawerMeta");
+    meta.innerHTML = "";
+    const rows = [
+      ["Status", task.status],
+      ["Priority", task.priority],
+      ["Area", task.area],
+      ["Complexity", task.complexity],
+      ["Route", task.model_route],
+    ];
+    for (const [k, v] of rows) {
+      if (!v) continue;
+      const dt = document.createElement("dt");
+      dt.textContent = k;
+      const dd = document.createElement("dd");
+      dd.textContent = v;
+      meta.append(dt, dd);
+    }
+    const sel = document.getElementById("drawerStatus");
+    const options = boardKind === "projects" ? ROSE_STATUSES : BUILD_STATUSES;
+    sel.innerHTML = options.map((s) => `<option value="${s}">${s}</option>`).join("");
+    sel.value = options.includes(task.status) ? task.status : options[0];
+    const link = document.getElementById("drawerNotion");
+    if (task.url) {
+      link.href = task.url;
+      link.hidden = false;
+    } else {
+      link.hidden = true;
+    }
+  }
+
+  function closeDrawer() {
+    document.getElementById("taskDrawer").hidden = true;
+    selectedTask = null;
+  }
+
+  async function loadBoard() {
+    const status = document.getElementById("statusFilter").value || "all";
+    const data = await get(`/api/tasks?board=${encodeURIComponent(currentBoard)}&status=${encodeURIComponent(status)}&limit=100`);
+    boardCache = data;
+    renderKanban(data);
+    // Sync tab selection
+    document.querySelectorAll(".board-tab").forEach((btn) => {
+      btn.setAttribute("aria-selected", btn.dataset.board === currentBoard ? "true" : "false");
+    });
+  }
+
+  async function loadProjects() {
+    const data = await get("/api/projects");
+    renderBoardTabs(data.boards || data.projects || []);
+    if (!currentBoard && data.boards && data.boards[0]) currentBoard = data.boards[0].id;
+    await loadBoard();
+  }
+
+  async function refreshOps() {
     const [snap, ready, logs, demo, work] = await Promise.all([
       get("/api/status"),
       get("/api/ready"),
@@ -147,13 +327,38 @@
     renderLogs(logs);
     const demoBtn = document.getElementById("demoBtn");
     const workBtn = document.getElementById("workBtn");
-    demoBtn.disabled = !!demo.running || !!work.running;
-    demoBtn.textContent = demo.running ? "Mock cycle running…" : "Run mock cycle";
+    if (demoBtn) {
+      demoBtn.disabled = !!demo.running || !!work.running;
+      demoBtn.textContent = demo.running ? "Mock cycle running…" : "Run mock cycle";
+    }
     if (workBtn) {
       workBtn.disabled = !!work.running || !!demo.running;
       workBtn.textContent = work.running ? "Work cycle running…" : "Run work cycle";
     }
   }
+
+  document.getElementById("statusFilter").addEventListener("change", () => {
+    loadBoard().catch((e) => toast(String(e.message || e)));
+  });
+  document.getElementById("refreshBoard").addEventListener("click", () => {
+    loadBoard().then(() => toast("Board refreshed")).catch((e) => toast(String(e.message || e)));
+  });
+  document.getElementById("drawerClose").addEventListener("click", closeDrawer);
+  document.getElementById("taskDrawer").addEventListener("click", (ev) => {
+    if (ev.target.id === "taskDrawer") closeDrawer();
+  });
+  document.getElementById("drawerSave").addEventListener("click", async () => {
+    if (!selectedTask) return;
+    const status = document.getElementById("drawerStatus").value;
+    try {
+      await post(`/api/tasks/${encodeURIComponent(selectedTask.page_id)}`, { status });
+      toast(`Moved to ${status}`);
+      closeDrawer();
+      await loadBoard();
+    } catch (e) {
+      toast(String(e.message || e));
+    }
+  });
 
   document.querySelectorAll("[data-action]").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -162,7 +367,7 @@
       try {
         await post("/api/control", { action });
         toast(`${action} sent`);
-        await refresh();
+        await refreshOps();
       } catch (e) {
         toast(String(e.message || e));
       } finally {
@@ -171,44 +376,48 @@
     });
   });
 
-  document.getElementById("skipForm").addEventListener("submit", async (ev) => {
-    ev.preventDefault();
-    const task_id = document.getElementById("skipId").value.trim();
-    if (!task_id) return toast("Enter a task id");
-    try {
-      await post("/api/control", { action: "skip", task_id });
-      toast(`Will skip ${task_id}`);
-      await refresh();
-    } catch (e) {
-      toast(String(e.message || e));
-    }
-  });
+  const skipForm = document.getElementById("skipForm");
+  if (skipForm) {
+    skipForm.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const task_id = document.getElementById("skipId").value.trim();
+      if (!task_id) return toast("Enter a task id");
+      try {
+        await post("/api/control", { action: "skip", task_id });
+        toast(`Will skip ${task_id}`);
+        await refreshOps();
+      } catch (e) {
+        toast(String(e.message || e));
+      }
+    });
+  }
 
-  document.getElementById("demoBtn").addEventListener("click", async () => {
-    const btn = document.getElementById("demoBtn");
-    btn.disabled = true;
-    try {
-      await post("/api/demo", {});
-      toast("Mock cycle started");
-      await refresh();
-    } catch (e) {
-      toast(String(e.message || e));
-      btn.disabled = false;
-    }
-  });
+  const demoBtn = document.getElementById("demoBtn");
+  if (demoBtn) {
+    demoBtn.addEventListener("click", async () => {
+      demoBtn.disabled = true;
+      try {
+        await post("/api/demo", {});
+        toast("Mock cycle started");
+        await refreshOps();
+      } catch (e) {
+        toast(String(e.message || e));
+        demoBtn.disabled = false;
+      }
+    });
+  }
 
   const workBtnEl = document.getElementById("workBtn");
   if (workBtnEl) {
     workBtnEl.addEventListener("click", async () => {
-      const btn = workBtnEl;
-      btn.disabled = true;
+      workBtnEl.disabled = true;
       try {
         await post("/api/work", { force: true });
         toast("Work cycle started");
-        await refresh();
+        await refreshOps();
       } catch (e) {
         toast(String(e.message || e));
-        btn.disabled = false;
+        workBtnEl.disabled = false;
       }
     });
   }
@@ -218,7 +427,8 @@
     if (!log) return;
     const line = document.createElement("div");
     line.className = `chat-line ${role}`;
-    line.textContent = `${role === "you" ? "You" : role === "local" ? "Local" : role === "cloud" ? "Cloud" : "System"}: ${text}`;
+    const who = role === "you" ? "You" : role === "local" ? "Hawkeye" : role === "cloud" ? "Cloud" : "System";
+    line.textContent = `${who}: ${text}`;
     log.appendChild(line);
     log.scrollTop = log.scrollHeight;
   }
@@ -242,9 +452,11 @@
         });
         if (data.local_reply) appendChat("local", data.local_reply);
         if (data.escalated && data.cloud_reply) appendChat("cloud", `[${data.provider || "cloud"}] ${data.cloud_reply}`);
-        if (data.seeded_task) appendChat("system", `Added to Notion checklist: ${data.seeded_task}`);
-        if (data.local_only) toast("Local model replied (escalate disabled)");
-        else toast(data.escalated ? `Escalated to ${data.provider || "premium"}` : "Local model replied");
+        if (data.seeded_task) {
+          appendChat("system", `Added to Notion: ${data.seeded_task}`);
+          loadBoard().catch(() => {});
+        }
+        toast(data.escalated ? `Escalated to ${data.provider || "premium"}` : "Hawkeye replied");
       } catch (e) {
         appendChat("system", String(e.message || e));
         toast(String(e.message || e));
@@ -254,8 +466,10 @@
     });
   }
 
-  refresh().catch((e) => toast(String(e.message || e)));
-  setInterval(() => { refresh().catch(() => {}); }, 2500);
+  loadProjects().catch((e) => toast(String(e.message || e)));
+  refreshOps().catch((e) => toast(String(e.message || e)));
+  setInterval(() => { refreshOps().catch(() => {}); }, 4000);
+  setInterval(() => { loadBoard().catch(() => {}); }, 20000);
 
   get("/api/auth")
     .then((auth) => {

@@ -774,6 +774,84 @@ def handle_chat(message: str, seed_notion: bool = True) -> dict[str, Any]:
     }
 
 
+def handle_list_boards() -> dict[str, Any]:
+    from notion import pm as notion_pm
+
+    boards = [b.to_dict() for b in notion_pm.list_boards()]
+    return {
+        "ok": True,
+        "boards": boards,
+        "projects": boards,
+        "notion_connected": bool(os.environ.get("NOTION_TOKEN", "").strip()),
+        "mock": env_truthy("HAWKEYE_PM_MOCK"),
+    }
+
+
+def handle_list_tasks(board_id: str, status: str | None, limit: int) -> dict[str, Any]:
+    from notion import pm as notion_pm
+
+    board_id = (board_id or "hawkeye").strip() or "hawkeye"
+    token_present = bool(os.environ.get("NOTION_TOKEN", "").strip())
+    force_mock = env_truthy("HAWKEYE_PM_MOCK")
+    try:
+        if force_mock or not token_present:
+            data = notion_pm.mock_board_summary(board_id)
+            if status and status.lower() not in ("all", "*", ""):
+                data["tasks"] = [t for t in data["tasks"] if t.get("status") == status]
+                data["total"] = len(data["tasks"])
+            data["ok"] = True
+            data["offline"] = not token_present
+            return data
+        data = notion_pm.board_summary(board_id)
+        if status and status.lower() not in ("all", "*", ""):
+            data["tasks"] = [t for t in data["tasks"] if t.get("status") == status]
+            data["total"] = len(data["tasks"])
+        data["ok"] = True
+        return data
+    except notion_pm.NotionError as e:
+        data = notion_pm.mock_board_summary(board_id)
+        data["ok"] = True
+        data["warning"] = str(e)
+        data["offline"] = True
+        return data
+
+
+def handle_get_task(page_id: str, board_id: str = "hawkeye") -> dict[str, Any]:
+    from notion import pm as notion_pm
+
+    try:
+        if env_truthy("HAWKEYE_PM_MOCK") or page_id.startswith("mock-"):
+            for t in notion_pm.mock_board_summary(board_id)["tasks"]:
+                if t["page_id"] == page_id:
+                    return {"ok": True, "task": t, "mock": True}
+            return {"ok": False, "error": "task not found"}
+        task = notion_pm.get_task(page_id, board_id=board_id)
+        return {"ok": True, "task": task.to_dict()}
+    except notion_pm.NotionError as e:
+        return {"ok": False, "error": str(e)}
+
+
+def handle_update_task_status(
+    page_id: str, status: str, *, pr_url: str | None = None
+) -> dict[str, Any]:
+    from notion import pm as notion_pm
+
+    try:
+        if env_truthy("HAWKEYE_PM_MOCK") or page_id.startswith("mock-"):
+            return {
+                "ok": True,
+                "mock": True,
+                "task": {
+                    "page_id": page_id,
+                    "status": status,
+                    "branch_pr": pr_url or "",
+                },
+            }
+        task = notion_pm.update_task_status(page_id, status, pr_url=pr_url)
+        return {"ok": True, "task": task.to_dict()}
+    except notion_pm.NotionError as e:
+        return {"ok": False, "error": str(e)}
+
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "AutocodeUI/1.0"
@@ -914,6 +992,23 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(*json_response({"ok": True, **get_store().stats()}))
             except Exception as e:  # noqa: BLE001
                 return self._send(*json_response({"ok": False, "error": str(e)}, 500))
+        if path == "/api/projects" or path == "/api/boards":
+            return self._send(*json_response(handle_list_boards()))
+        if path == "/api/tasks":
+            from urllib.parse import parse_qs
+
+            qs = parse_qs(urlparse(self.path).query)
+            board = (qs.get("board") or qs.get("project") or ["hawkeye"])[0]
+            status = (qs.get("status") or ["all"])[0]
+            limit = int((qs.get("limit") or ["50"])[0] or 50)
+            return self._send(*json_response(handle_list_tasks(board, status, limit)))
+        if path.startswith("/api/tasks/"):
+            page_id = path.split("/api/tasks/", 1)[1].strip("/")
+            from urllib.parse import parse_qs
+
+            qs = parse_qs(urlparse(self.path).query)
+            board = (qs.get("board") or ["hawkeye"])[0]
+            return self._send(*json_response(handle_get_task(page_id, board)))
         self._send(*json_response({"error": "not found"}, 404))
 
     def do_POST(self) -> None:  # noqa: N802
@@ -994,6 +1089,32 @@ class Handler(BaseHTTPRequestHandler):
                         str(data.get("message") or ""),
                         seed_notion=str(data.get("seed_notion", "1")).lower()
                         not in ("0", "false", "no"),
+                    )
+                )
+            )
+        if path.startswith("/api/tasks/") and (
+            self.headers.get("X-HTTP-Method-Override", "").upper() == "PATCH"
+            or str(data.get("_method") or "").upper() == "PATCH"
+        ):
+            page_id = path.split("/api/tasks/", 1)[1].strip("/")
+            return self._send(
+                *json_response(
+                    handle_update_task_status(
+                        page_id,
+                        str(data.get("status") or ""),
+                        pr_url=str(data.get("branch_pr") or data.get("pr_url") or "") or None,
+                    )
+                )
+            )
+        if path.startswith("/api/tasks/") and "status" in data:
+            # Convenience POST {status} for browsers that avoid PATCH.
+            page_id = path.split("/api/tasks/", 1)[1].strip("/")
+            return self._send(
+                *json_response(
+                    handle_update_task_status(
+                        page_id,
+                        str(data.get("status") or ""),
+                        pr_url=str(data.get("branch_pr") or data.get("pr_url") or "") or None,
                     )
                 )
             )
