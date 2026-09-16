@@ -59,21 +59,39 @@ When prompted:
 - **Username:** `brandonbrown15`
 - **Password:** paste the **PAT** (not your GitHub password)
 
-**Or — GitHub CLI (recommended if `gh` is installed):**
+**Or — SSH (best on Jetson once the key is added):**
 
 ```bash
-gh auth login
-# GitHub.com → HTTPS → Login with a web browser (or paste a token)
-gh repo clone brandonbrown15/Hawkeye ~/Hawkeye
+# Run these lines one at a time on the Jetson
+ssh-keygen -t ed25519 -C "shaggy@jetson" -f ~/.ssh/id_ed25519 -N ""
+cat ~/.ssh/id_ed25519.pub
 ```
 
-**Or — SSH** (after you add an SSH key to GitHub):
+Copy the printed line (`ssh-ed25519 AAAA…`). On your phone/laptop:
+
+1. Open https://github.com/settings/ssh/new  
+2. Title: `jetson`  
+3. Paste the key → **Add SSH key**
+
+Back on the Jetson:
 
 ```bash
-ssh-keygen -t ed25519 -C "jetson" -f ~/.ssh/id_ed25519 -N ""
-cat ~/.ssh/id_ed25519.pub
-# Add that public key at https://github.com/settings/keys
+ssh -T git@github.com
+# expect: Hi brandonbrown15! You've successfully authenticated...
 git clone git@github.com:brandonbrown15/Hawkeye.git ~/Hawkeye
+cd ~/Hawkeye
+./scripts/bootstrap_jetson.sh
+```
+
+**Or — GitHub CLI device login** (no SSH key; uses a phone browser):
+
+```bash
+sudo apt-get update && sudo apt-get install -y gh
+gh auth login -h github.com -p https -w
+# Follow the one-time code at https://github.com/login/device
+gh repo clone brandonbrown15/Hawkeye ~/Hawkeye
+cd ~/Hawkeye
+./scripts/bootstrap_jetson.sh
 ```
 
 ### 1. Bootstrap
