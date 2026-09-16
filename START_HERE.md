@@ -3,12 +3,14 @@
 ## One command (Hawkeye / Jetson)
 
 ```bash
+# 1) Auth first (PAT as password, or: gh auth login)
 git clone https://github.com/brandonbrown15/Hawkeye.git ~/Hawkeye
 cd ~/Hawkeye
 ./start
 ```
 
-If you see `Permission denied` under `/opt`, clone to `~/Hawkeye` instead (no sudo).
+If you see `Permission denied` under `/opt`, clone to `~/Hawkeye` instead (no sudo).  
+If you see `Password authentication is not supported`, use a GitHub **PAT** (not your login password) — see [README.md](README.md) Quick start §0.
 
 Answer a few questions. Wait. Done.
 

@@ -36,23 +36,54 @@ This is **not** the public [Autocode](https://github.com/brandonbrown15/Autocode
 
 ## Quick start (Jetson)
 
+**Paste one command at a time.** Do not paste Markdown headings or `# comment` lines from the README into the terminal.
+
+### 0. GitHub auth (required — private repo)
+
+GitHub **does not accept your account password** for `git clone`. Use a Personal Access Token (PAT) or SSH.
+
+**Easiest — PAT over HTTPS:**
+
+1. On a phone/laptop, create a token: https://github.com/settings/tokens?type=beta  
+   - Resource owner: **brandonbrown15**  
+   - Repository access: **Only select repositories** → **Hawkeye**  
+   - Permissions: **Contents** = Read (and Write if you want PRs later)  
+2. Copy the token (starts with `github_pat_…`).
+3. On the Jetson:
+
 ```bash
-# Clone into your home directory (no sudo needed)
 git clone https://github.com/brandonbrown15/Hawkeye.git ~/Hawkeye
-cd ~/Hawkeye
-./start
-# or fully scripted:
-# ./scripts/bootstrap_jetson.sh
 ```
 
-If the repo is private and clone asks for a password, use a GitHub PAT or SSH:
+When prompted:
+- **Username:** `brandonbrown15`
+- **Password:** paste the **PAT** (not your GitHub password)
+
+**Or — GitHub CLI (recommended if `gh` is installed):**
 
 ```bash
 gh auth login
-# or: git clone git@github.com:brandonbrown15/Hawkeye.git ~/Hawkeye
+# GitHub.com → HTTPS → Login with a web browser (or paste a token)
+gh repo clone brandonbrown15/Hawkeye ~/Hawkeye
 ```
 
-Then:
+**Or — SSH** (after you add an SSH key to GitHub):
+
+```bash
+ssh-keygen -t ed25519 -C "jetson" -f ~/.ssh/id_ed25519 -N ""
+cat ~/.ssh/id_ed25519.pub
+# Add that public key at https://github.com/settings/keys
+git clone git@github.com:brandonbrown15/Hawkeye.git ~/Hawkeye
+```
+
+### 1. Bootstrap
+
+```bash
+cd ~/Hawkeye
+./scripts/bootstrap_jetson.sh
+```
+
+(Alternative interactive wizard: `./start`)
 
 ```bash
 # Work users (brandon@ already seeded in config/users.json)
@@ -311,6 +342,9 @@ Notion handoff (workspace): see **Hawkeye** hub → *Handoff — Hawkeye Cursor 
 
 | Symptom | Likely cause |
 |---------|----------------|
+| `Password authentication is not supported` / `Invalid username or token` | Used GitHub account password — paste a **PAT** as the password, or use `gh auth login` / SSH |
+| `Permission denied` cloning to `/opt/hawkeye` | Need sudo ownership, **or** clone to `~/Hawkeye` instead |
+| `syntax error near unexpected token '('` | Pasted a Markdown comment line (`# Recommended — …`) — paste only the `git` / `cd` / `./scripts/...` lines |
 | `hawkeye.brownhawke.engineering` won’t load | DNS/tunnel not created yet, **or** Jetson/cloudflared offline |
 | UI asks for login / rejects email | Must be `@brownhawke.engineering`; check `config/users.json` |
 | Empty / sample board | Missing `NOTION_TOKEN` or integration not shared on the DB |
