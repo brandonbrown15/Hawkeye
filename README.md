@@ -37,11 +37,19 @@ This is **not** the public [Autocode](https://github.com/brandonbrown15/Autocode
 ## Quick start (Jetson)
 
 ```bash
-git clone https://github.com/brandonbrown15/Hawkeye.git
-cd Hawkeye
+# Clone into your home directory (no sudo needed)
+git clone https://github.com/brandonbrown15/Hawkeye.git ~/Hawkeye
+cd ~/Hawkeye
 ./start
 # or fully scripted:
 # ./scripts/bootstrap_jetson.sh
+```
+
+If the repo is private and clone asks for a password, use a GitHub PAT or SSH:
+
+```bash
+gh auth login
+# or: git clone git@github.com:brandonbrown15/Hawkeye.git ~/Hawkeye
 ```
 
 Then:
@@ -82,10 +90,18 @@ One-shot go-live (bootstrap + doctor + optional autopilot):
 ### 1. Clone and bootstrap
 
 ```bash
-git clone https://github.com/brandonbrown15/Hawkeye.git /opt/hawkeye   # or any path
-cd /opt/hawkeye
+# Recommended — home directory (no root)
+git clone https://github.com/brandonbrown15/Hawkeye.git ~/Hawkeye
+cd ~/Hawkeye
 ./scripts/bootstrap_jetson.sh
+
+# Optional — system path (needs sudo for the directory only)
+# sudo mkdir -p /opt/hawkeye && sudo chown "$USER:$USER" /opt/hawkeye
+# git clone https://github.com/brandonbrown15/Hawkeye.git /opt/hawkeye
+# cd /opt/hawkeye && ./scripts/bootstrap_jetson.sh
 ```
+
+Do **not** paste the `# or any path` comment as part of a broken path — and do **not** clone straight into `/opt/...` without `sudo` / ownership first (`Permission denied`).
 
 What bootstrap does:
 
