@@ -26,6 +26,10 @@ rewrite "$ROOT/cron/autocode-worker.service" "$UNIT_DIR/autocode-worker.service"
 cp "$ROOT/cron/autocode-worker.timer" "$UNIT_DIR/autocode-worker.timer"
 
 if [[ "$WITH_UI" == "1" ]]; then
+  # Prefer Hawkeye-branded boot unit when present.
+  if [[ -f "$ROOT/cron/hawkeye-ui.service" ]]; then
+    rewrite "$ROOT/cron/hawkeye-ui.service" "$UNIT_DIR/hawkeye-ui.service"
+  fi
   rewrite "$ROOT/cron/autocode-ui.service" "$UNIT_DIR/autocode-ui.service"
 fi
 
@@ -33,19 +37,24 @@ fi
 "${SYSCTL[@]}" enable --now autocode-overnight.timer
 "${SYSCTL[@]}" enable --now autocode-worker.timer
 if [[ "$WITH_UI" == "1" ]]; then
-  "${SYSCTL[@]}" enable --now autocode-ui.service || true
+  if [[ -f "$UNIT_DIR/hawkeye-ui.service" ]]; then
+    "${SYSCTL[@]}" enable --now hawkeye-ui.service || true
+  else
+    "${SYSCTL[@]}" enable --now autocode-ui.service || true
+  fi
 fi
 
 echo
 echo "Installed Autocode timers ($MODE):"
 echo "  • overnight  — daily 01:00 (batch)"
 echo "  • worker     — every ~30 min when continuous is enabled"
-[[ "$WITH_UI" == "1" ]] && echo "  • ui         — dashboard service (see scripts/ui.sh --remote)"
+[[ "$WITH_UI" == "1" ]] && echo "  • ui         — hawkeye-ui / autocode-ui (see scripts/install_hawkeye_autostart.sh)"
 echo
 echo "Live work requires in .env:"
 echo "  AUTOCODE_AUTOPILOT_ENABLED=1"
 echo "  AUTOCODE_CONTINUOUS_ENABLED=1   # for daytime / always-on coding"
 echo
+echo "Boot-only UI (no overnight timers): ./scripts/install_hawkeye_autostart.sh"
 echo "Supervised once:  $ROOT/cron/overnight_run.sh --force"
 echo "One work cycle:   $ROOT/cron/worker_run.sh --force"
 echo "Dry-run:          $ROOT/cron/worker_run.sh --dry-run"

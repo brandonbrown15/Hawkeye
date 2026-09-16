@@ -1,0 +1,22 @@
+[Unit]
+Description=Hawkeye — BrownHawke engineering PM + chat UI
+Documentation=file:///opt/autocode/docs/hawkeye.md
+After=network-online.target
+Wants=network-online.target
+# Ollama is usually a system unit; we wait in ExecStartPre rather than Requires=
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/autocode
+EnvironmentFile=-/opt/autocode/.env
+Environment=AUTOCODE_PRODUCT_NAME=Hawkeye
+Environment=AUTOCODE_PRIVATE_MODE=1
+# Wait up to ~60s for Ollama so first boot after power-on is reliable.
+ExecStartPre=/bin/bash -c 'for i in $(seq 1 30); do curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && exit 0; sleep 2; done; echo "Hawkeye: Ollama not ready yet — starting UI anyway"; exit 0'
+ExecStart=/opt/autocode/scripts/ui.sh
+Restart=always
+RestartSec=5
+Nice=5
+
+[Install]
+WantedBy=default.target

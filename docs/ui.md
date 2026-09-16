@@ -7,13 +7,17 @@ Kid-simple dashboard that runs **on the Jetson** (or any Linux box).
 # open http://127.0.0.1:8787/
 ```
 
-Keep it running in the background (recommended for remote monitoring):
+Keep it running across reboots (Hawkeye on Jetson):
 
 ```bash
-# installs overnight + continuous worker timers AND the UI service
+./scripts/install_hawkeye_autostart.sh
+# systemctl --user status hawkeye-ui.service
+```
+
+Overnight / continuous worker timers (separate from UI boot):
+
+```bash
 ./cron/install_autopilot_timers.sh
-# or UI only:
-systemctl --user enable --now autocode-ui.service   # after install rewrites paths
 ```
 
 ## What it does
@@ -49,7 +53,7 @@ Always-on:
 ```bash
 # in .env
 AUTOCODE_UI_REMOTE=1
-./cron/install_autopilot_timers.sh   # enables autocode-ui.service
+./scripts/install_hawkeye_autostart.sh   # hawkeye-ui.service on boot
 ```
 
 Optional: `tailscale serve` / `tailscale funnel` if you want HTTPS on your Tailnet.

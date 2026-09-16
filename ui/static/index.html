@@ -23,74 +23,122 @@
       />
       <div class="brand-copy">
         <p class="product">{{PRODUCT}}</p>
-        <p class="tagline">Personal coding autopilot — free local LLM all day; Cursor &amp; Grok when it gets hard.</p>
+        <p class="tagline">Team project management — Notion boards live here; Hawkeye plans and drives the work.</p>
       </div>
     </div>
-    <div class="live-chip" id="liveChip" data-phase="idle">
-      <span class="pulse" aria-hidden="true"></span>
-      <span id="phaseLabel">idle</span>
+    <div class="header-actions">
+      <div class="live-chip" id="liveChip" data-phase="idle">
+        <span class="pulse" aria-hidden="true"></span>
+        <span id="phaseLabel">idle</span>
+      </div>
+      <button type="button" class="btn ghost compact" id="logoutBtn" hidden>Sign out</button>
     </div>
   </header>
 
-  <main>
-    <section class="hero-status" aria-labelledby="nowHeading">
-      <h1 id="nowHeading">What’s happening now</h1>
-      <p class="lede" id="statusLede">Loading status…</p>
-      <dl class="readout">
-        <div><dt>Task</dt><dd id="taskVal">—</dd></div>
-        <div><dt>Route</dt><dd id="routeVal">—</dd></div>
-        <div><dt>Heartbeat</dt><dd id="hbVal">—</dd></div>
-        <div><dt>Stuck?</dt><dd id="stuckVal">—</dd></div>
-      </dl>
-      <div class="actions" role="group" aria-label="Work controls">
-        <button type="button" class="btn primary" data-action="pause">Pause</button>
-        <button type="button" class="btn" data-action="resume">Resume</button>
-        <button type="button" class="btn danger" data-action="abort">Abort</button>
-        <button type="button" class="btn ghost" id="workBtn">Run work cycle</button>
-        <button type="button" class="btn ghost" id="demoBtn">Run mock cycle</button>
+  <main class="pm-main">
+    <section class="pm-toolbar" aria-label="Board controls">
+      <div class="board-tabs" id="boardTabs" role="tablist"></div>
+      <div class="pm-filters">
+        <label class="sr-only" for="statusFilter">Status</label>
+        <select id="statusFilter" aria-label="Filter by status">
+          <option value="all">All statuses</option>
+          <option value="Ready">Ready</option>
+          <option value="Running">Running</option>
+          <option value="Needs review">Needs review</option>
+          <option value="Blocked">Blocked</option>
+          <option value="Backlog">Backlog</option>
+          <option value="Done">Done</option>
+          <option value="Now">Now</option>
+          <option value="Next">Next</option>
+        </select>
+        <button type="button" class="btn compact" id="refreshBoard">Refresh</button>
       </div>
-      <form class="skip-row" id="skipForm">
-        <label for="skipId">Skip task id</label>
-        <input id="skipId" name="task_id" placeholder="BLD-12" autocomplete="off" />
-        <button type="submit" class="btn compact">Skip</button>
-      </form>
     </section>
 
-    <section class="ready" aria-labelledby="readyHeading">
-      <h2 id="readyHeading">Ready checklist</h2>
-      <p class="section-note">Navy marks mean this Jetson (or Linux box) is ready to autopilot. Fix reds with the hints.</p>
-      <ul class="checks" id="checks"></ul>
-      <p class="meta" id="readyMeta"></p>
+    <p class="pm-banner" id="pmBanner" hidden></p>
+
+    <section class="pm-summary" aria-label="Board summary">
+      <div class="count-pills" id="countPills"></div>
+      <p class="section-note" id="boardMeta">Loading Notion board…</p>
     </section>
 
+    <section class="kanban" aria-labelledby="boardHeading">
+      <h1 id="boardHeading" class="sr-only">Project board</h1>
+      <div class="kanban-columns" id="kanban"></div>
+    </section>
+
+    <aside class="task-drawer" id="taskDrawer" hidden>
+      <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+        <button type="button" class="btn ghost compact drawer-close" id="drawerClose">Close</button>
+        <p class="drawer-id" id="drawerId"></p>
+        <h2 id="drawerTitle"></h2>
+        <dl class="drawer-meta" id="drawerMeta"></dl>
+        <p class="drawer-accept" id="drawerAccept"></p>
+        <p class="drawer-notes" id="drawerNotes"></p>
+        <div class="drawer-actions">
+          <label for="drawerStatus">Move to</label>
+          <select id="drawerStatus"></select>
+          <button type="button" class="btn primary compact" id="drawerSave">Update status</button>
+          <a class="btn ghost compact" id="drawerNotion" href="#" target="_blank" rel="noopener">Open in Notion</a>
+        </div>
+      </div>
+    </aside>
 
     <section class="chat" aria-labelledby="chatHeading">
-      <h2 id="chatHeading">Talk to Autocode</h2>
-      <p class="section-note" id="chatNote">Local model is free all day. Hard asks escalate to Cursor / Grok Bot when those webhooks are set. Works from your phone over Tailscale or your private domain.</p>
+      <h2 id="chatHeading">Talk to Hawkeye</h2>
+      <p class="section-note" id="chatNote">Ask Hawkeye to plan, research, or queue work. Useful items can seed the Notion board.</p>
       <div id="chatLog" class="chat-log" role="log" aria-live="polite"></div>
       <form class="chat-form" id="chatForm">
         <label for="chatInput" class="sr-only">Message</label>
-        <textarea id="chatInput" rows="3" placeholder="e.g. Add a Ready task to harden the login rate limiter, then keep going." required></textarea>
+        <textarea id="chatInput" rows="3" placeholder="e.g. Break the tunnel deploy into Ready tasks for the team." required></textarea>
         <div class="chat-actions">
           <button type="submit" class="btn primary" id="chatSend">Send</button>
-          <label class="check-inline"><input type="checkbox" id="chatSeed" checked /> Also add to Notion checklist when useful</label>
+          <label class="check-inline"><input type="checkbox" id="chatSeed" checked /> Seed Notion when useful</label>
         </div>
       </form>
     </section>
 
-    <section class="logs" aria-labelledby="logHeading">
-      <div class="log-head">
-        <h2 id="logHeading">Latest log</h2>
-        <span class="path" id="logPath"></span>
-      </div>
-      <pre id="logText" class="log-pane" tabindex="0">(waiting…)</pre>
-    </section>
+    <details class="ops-panel">
+      <summary>Autopilot controls &amp; system readiness</summary>
+      <section class="hero-status nested" aria-labelledby="nowHeading">
+        <h2 id="nowHeading">What’s happening now</h2>
+        <p class="lede" id="statusLede">Loading status…</p>
+        <dl class="readout">
+          <div><dt>Task</dt><dd id="taskVal">—</dd></div>
+          <div><dt>Route</dt><dd id="routeVal">—</dd></div>
+          <div><dt>Heartbeat</dt><dd id="hbVal">—</dd></div>
+          <div><dt>Stuck?</dt><dd id="stuckVal">—</dd></div>
+        </dl>
+        <div class="actions" role="group" aria-label="Work controls">
+          <button type="button" class="btn primary" data-action="pause">Pause</button>
+          <button type="button" class="btn" data-action="resume">Resume</button>
+          <button type="button" class="btn danger" data-action="abort">Abort</button>
+          <button type="button" class="btn ghost" id="workBtn">Run work cycle</button>
+          <button type="button" class="btn ghost" id="demoBtn">Run mock cycle</button>
+        </div>
+        <form class="skip-row" id="skipForm">
+          <label for="skipId">Skip task id</label>
+          <input id="skipId" name="task_id" placeholder="HK-2" autocomplete="off" />
+          <button type="submit" class="btn compact">Skip</button>
+        </form>
+      </section>
+      <section class="ready nested" aria-labelledby="readyHeading">
+        <h2 id="readyHeading">Ready checklist</h2>
+        <ul class="checks" id="checks"></ul>
+        <p class="meta" id="readyMeta"></p>
+      </section>
+      <section class="logs nested" aria-labelledby="logHeading">
+        <div class="log-head">
+          <h2 id="logHeading">Latest log</h2>
+          <span class="path" id="logPath"></span>
+        </div>
+        <pre id="logText" class="log-pane" tabindex="0">(waiting…)</pre>
+      </section>
+    </details>
   </main>
 
   <footer class="foot">
-    <p>BrownHawke Engineering · {{PRODUCT}} · private
-      · <button type="button" class="btn ghost compact" id="logoutBtn" hidden>Sign out</button>
-    </p>
+    <p>BrownHawke Engineering · {{PRODUCT}} · Notion-backed team PM</p>
     <p id="toast" class="toast" role="status" aria-live="polite"></p>
   </footer>
 

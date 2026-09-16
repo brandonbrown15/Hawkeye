@@ -95,14 +95,34 @@ AUTOCODE_UI_SECURE=1
 
 Alternative: Tailscale only (`./scripts/ui.sh --remote`) — no public hostname required.
 
-## 4. Phone use
+## 4. Auto-start on Jetson boot
+
+So Hawkeye comes back when the box powers on:
+
+```bash
+./scripts/install_hawkeye_autostart.sh
+# enables hawkeye-ui.service (+ linger so it starts without a login)
+# enables ollama.service when present
+# enables hawkeye-tunnel.service when cloudflared + config/token exist
+```
+
+`bootstrap_jetson.sh` runs this automatically (skip with `SKIP_AUTOSTART=1`).
+
+Check / disable:
+
+```bash
+systemctl --user status hawkeye-ui.service
+./scripts/install_hawkeye_autostart.sh --disable
+```
+
+## 5. Phone use
 
 1. Open `https://hawkeye.brownhawke.engineering`  
 2. Sign in  
 3. Chat hits **local** Ollama first  
 4. Hard asks POST to **Cursor** then **Grok Bot** (or reverse if `AUTOCODE_CLOUD_PREFERENCE=grok`)
 
-## 5. Vector memory + web research
+## 6. Vector memory + web research
 
 ```bash
 ./bootstrap/05_use_data_ssd.sh   # creates $AUTOCODE_DATA_ROOT/hawkeye/memory

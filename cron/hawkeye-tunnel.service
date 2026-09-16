@@ -1,0 +1,18 @@
+[Unit]
+Description=Hawkeye Cloudflare Tunnel (hawkeye.brownhawke.engineering)
+Documentation=file:///opt/autocode/docs/hawkeye.md
+After=network-online.target hawkeye-ui.service
+Wants=network-online.target hawkeye-ui.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/autocode
+EnvironmentFile=-/opt/autocode/.env
+# Token in .env (TUNNEL_TOKEN=…) or named tunnel from ~/.cloudflared/config.yml
+ExecStart=/bin/bash -c 'if [[ -n "${TUNNEL_TOKEN:-}" ]]; then exec cloudflared tunnel --no-autoupdate run --token "$TUNNEL_TOKEN"; else exec cloudflared tunnel --no-autoupdate run hawkeye; fi'
+Restart=always
+RestartSec=10
+Nice=5
+
+[Install]
+WantedBy=default.target
