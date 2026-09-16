@@ -1,0 +1,21 @@
+# Stub / reference Hermes config for Autocode local-primary setup.
+# configure_local_primary.sh also writes ~/.hermes/config.yaml from .env.
+
+model:
+  default: "coder-64k"
+  provider: custom
+  base_url: http://127.0.0.1:11434/v1
+  api_key: "ollama"
+  context_length: 65536
+  ollama_num_ctx: 65536
+  max_tokens: 8192
+
+fallback_providers: []
+
+gateways:
+  telegram:
+    enabled: false
+
+skills:
+  - name: overnight-coding-autopilot
+    path: skills/overnight-coding-autopilot.md

@@ -1,0 +1,40 @@
+# Secrets & local machine config — never commit
+.env
+.env.*
+!.env.example
+notion/ids.yaml
+!notion/ids.example.yaml
+# (ids.yaml is the local copy; only ids.example.yaml is committed)
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Python / node
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+
+# Runtime
+logs/
+tmp/
+.cache/
+state/
+*.log
+
+# Hawkeye personal memory (SSD) — never commit
+**/hawkeye/memory/
+memories.jsonl

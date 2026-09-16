@@ -1,0 +1,10 @@
+[Unit]
+Description=Autocode overnight timer (local 01:00)
+
+[Timer]
+OnCalendar=*-*-* 01:00:00
+Persistent=true
+Unit=autocode-overnight.service
+
+[Install]
+WantedBy=timers.target

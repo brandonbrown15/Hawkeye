@@ -1,0 +1,13 @@
+# Example Cloudflare Tunnel config for Hawkeye
+# Copy to ~/.cloudflared/config.yml and replace TUNNEL_UUID / path.
+#
+# DNS: cloudflared tunnel route dns hawkeye hawkeye.brownhawke.engineering
+# UI:  AUTOCODE_UI_HOST=127.0.0.1 ./scripts/ui.sh
+
+tunnel: TUNNEL_UUID
+credentials-file: /home/YOU/.cloudflared/TUNNEL_UUID.json
+
+ingress:
+  - hostname: hawkeye.brownhawke.engineering
+    service: http://127.0.0.1:8787
+  - service: http_status:404

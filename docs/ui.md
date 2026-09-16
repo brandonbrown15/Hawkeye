@@ -1,0 +1,105 @@
+# Autocode local UI
+
+Kid-simple dashboard that runs **on the Jetson** (or any Linux box).
+
+```bash
+./scripts/ui.sh
+# open http://127.0.0.1:8787/
+```
+
+Keep it running in the background (recommended for remote monitoring):
+
+```bash
+# installs overnight + continuous worker timers AND the UI service
+./cron/install_autopilot_timers.sh
+# or UI only:
+systemctl --user enable --now autocode-ui.service   # after install rewrites paths
+```
+
+## What it does
+
+- Live phase / task / route / heartbeat (same as `./scripts/status.sh`)
+- Pause · Resume · Abort · Skip task
+- Ready checklist (Notion, Hermes, Ollama, GitHub, autopilot / continuous)
+- **Run work cycle** — drain Ready Notion tasks now
+- **Talk to Autocode** — chat with the local LLM; auto-escalates to a larger cloud model when needed
+- Mock cycle for dry practice
+- Tail of the latest log
+
+The same dashboard works over Tailscale remote access — chat, controls, and status are identical on phone or laptop.
+
+## Remote monitoring (phone / laptop)
+
+### Option A — Tailscale (recommended)
+
+Same private network as the Jetson, no public internet exposure:
+
+```bash
+# On Jetson
+./bootstrap/04_install_tailscale.sh
+sudo tailscale up
+./scripts/ui.sh --remote
+# note the http://100.x.y.z:8787/ URL printed
+```
+
+From your phone/laptop (also on Tailscale), open that URL.
+
+Always-on:
+
+```bash
+# in .env
+AUTOCODE_UI_REMOTE=1
+./cron/install_autopilot_timers.sh   # enables autocode-ui.service
+```
+
+Optional: `tailscale serve` / `tailscale funnel` if you want HTTPS on your Tailnet.
+
+### Option B — SSH tunnel (safest default)
+
+```bash
+ssh -L 8787:127.0.0.1:8787 jetson
+# open http://127.0.0.1:8787/ on your laptop
+```
+
+### Option C — Public domain (Hawkeye private)
+
+Canonical host: **`https://hawkeye.brownhawke.engineering`** (subdomain of BrownHawke.engineering).  
+Use login + Cloudflare Tunnel. See **[hawkeye.md](hawkeye.md)**.
+
+```bash
+AUTOCODE_PRIVATE_MODE=1
+AUTOCODE_PRODUCT_NAME=Hawkeye
+AUTOCODE_PUBLIC_HOST=hawkeye.brownhawke.engineering
+AUTOCODE_UI_SECURE=1
+# password hash from: python3 scripts/set_private_password.py
+AUTOCODE_PERSONAL_LOCAL_ONLY=0   # keep Cursor/Grok escalate
+cloudflared tunnel route dns hawkeye hawkeye.brownhawke.engineering
+```
+
+Do **not** bind `0.0.0.0` on a public IP without a tunnel + login.
+
+## Env
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `AUTOCODE_UI_HOST` | `127.0.0.1` | Bind address |
+| `AUTOCODE_UI_PORT` | `8787` | Port |
+| `AUTOCODE_UI_REMOTE` | `0` | `1` = prefer Tailscale IP / LAN bind |
+| `AUTOCODE_PUBLIC_HOST` | `hawkeye.brownhawke.engineering` | Hawkeye public hostname |
+| `AUTOCODE_UI_SECURE` | `0` | Force Secure session cookies |
+
+Mutating actions require a session token injected into the page (CSRF guard).
+
+
+## Talk to Hawkeye / Autocode
+
+The dashboard chat box talks to the **local** Ollama model first (free all day on the Jetson).
+
+1. You type an instruction (locally, Tailscale, or private domain after login).
+2. Local model answers when it can.
+3. If it cannot (says `ESCALATE:`, errors, or the ask is clearly too big), Hawkeye/Autocode forwards to **Cursor webhook → Grok Bot webhook**, then optional API keys.
+4. Optional checkbox: seed useful follow-ups into the Notion Ready checklist.
+
+Set `CURSOR_WEBHOOK_URL` and `GROK_BOT_WEBHOOK_URL` for premium handoff. Optional API keys: `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, or `XAI_API_KEY`.
+
+Private personal product: **[hawkeye.md](hawkeye.md)**.

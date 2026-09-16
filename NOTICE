@@ -1,0 +1,18 @@
+Hawkeye
+Copyright (c) 2026 BrownHawke Engineering. All rights reserved.
+Licensed under the Hawkeye Proprietary Software License — see LICENSE.
+
+This product includes software developed as part of Autocode
+(https://github.com/brandonbrown15/Autocode), which is licensed under the
+Apache License, Version 2.0.
+
+Autocode (Apache-2.0) attribution:
+  Copyright BrownHawke / Autocode contributors
+  Licensed under the Apache License, Version 2.0
+  http://www.apache.org/licenses/LICENSE-2.0
+
+A copy of the Apache-2.0 text for upstream Autocode reference material is
+kept in LICENSE.Apache-2.0 for attribution compliance.
+
+Hawkeye-specific code, branding, private deployment docs, authentication,
+and configuration in this repository are proprietary to BrownHawke Engineering.

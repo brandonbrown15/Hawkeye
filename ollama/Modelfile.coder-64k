@@ -1,0 +1,14 @@
+# coder-64k — tool-capable local coder with 64k context for Hermes.
+# Base model: pick a Jetson-fitting tool-capable 3B–7B (override with BASE_MODEL env).
+# Create with: ./create_coder_64k.sh
+
+FROM qwen2.5-coder:7b
+
+PARAMETER num_ctx 65536
+PARAMETER temperature 0.2
+PARAMETER top_p 0.9
+
+SYSTEM """You are Autocode local Hermes on a Jetson Orin Nano Super.
+Prefer small, reviewable patches. Follow acceptance criteria exactly.
+Never merge main. Never invent secrets. If stuck after two honest attempts, stop and escalate.
+"""

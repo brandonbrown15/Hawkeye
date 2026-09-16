@@ -1,0 +1,257 @@
+#!/usr/bin/env bash
+# Autocode — kid-simple setup.
+# Run:  ./start
+# That's it.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT"
+
+# Always prefer repo scripts/
+export PATH="${ROOT}/scripts:${PATH}"
+
+say()  { printf "\n%s\n" "$*"; }
+big()  { printf "\n\033[1m%s\033[0m\n" "$*"; }
+ok()   { printf "  ✓ %s\n" "$*"; }
+ask()  { # ask "Prompt" varname [default]
+  local prompt="$1" var="$2" def="${3:-}"
+  local val=""
+  if [[ -n "$def" ]]; then
+    read -r -p "  $prompt [$def]: " val || true
+    val="${val:-$def}"
+  else
+    read -r -p "  $prompt: " val || true
+  fi
+  printf -v "$var" '%s' "$val"
+}
+
+upsert_env() {
+  local key="$1" val="$2"
+  KEY="$key" VAL="$val" python3 - <<'PY'
+import os
+from pathlib import Path
+key, val = os.environ["KEY"], os.environ["VAL"]
+path = Path(".env")
+lines = path.read_text().splitlines() if path.exists() else []
+out, found = [], False
+for line in lines:
+    if line.startswith(f"{key}=") or line.startswith(f"{key} ="):
+        out.append(f"{key}={val}")
+        found = True
+    else:
+        out.append(line)
+if not found:
+    out.append(f"{key}={val}")
+path.write_text("\n".join(out) + "\n")
+PY
+}
+
+notion_page_id_from_anything() {
+  # Accept raw UUID or a full Notion URL and return a dashed UUID if possible.
+  python3 - "$1" <<'PY'
+import re, sys
+s = sys.argv[1].strip()
+hexes = re.findall(r"[0-9a-fA-F]{32}", s.replace("-", ""))
+if not hexes:
+    # already dashed?
+    m = re.search(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", s)
+    print(m.group(0) if m else s)
+    raise SystemExit(0)
+h = hexes[-1].lower()
+print(f"{h[0:8]}-{h[8:12]}-{h[12:16]}-{h[16:20]}-{h[20:32]}")
+PY
+}
+
+big "========================================"
+big "  Autocode setup (easy mode)"
+big "========================================"
+say "You will answer a few easy questions."
+say "Then the computer does the rest."
+say ""
+say "You need:"
+say "  1) A GitHub account"
+say "  2) A Notion account (free is fine)"
+say "  3) This computer on (Jetson or Linux box)"
+say ""
+read -r -p "Press Enter to start… " _ || true
+
+# --- ensure .env exists ---
+if [[ ! -f .env ]]; then
+  cp .env.example .env
+  ok "Made a new .env settings file"
+fi
+# shellcheck disable=SC1091
+set -a
+source .env
+set +a
+
+# Sensible kid defaults
+upsert_env AUTOCODE_LOCAL_ONLY 1
+upsert_env AUTOCODE_AUTOPILOT_ENABLED 0
+upsert_env AUTOCODE_COST_PROFILE cursor-grok
+upsert_env AUTOCODE_DISABLE_METERED_GROK 1
+upsert_env AUTOCODE_CURSOR_DELEGATE_CMD "./scripts/delegate_cursor.sh"
+upsert_env AUTOCODE_GROK_DELEGATE_CMD "./scripts/delegate_grok.sh"
+
+# ========== 1) GitHub ==========
+big "Step 1 of 4 — GitHub (so it can open pull requests)"
+say "Easiest: paste a GitHub token."
+say "Make one here (click Generate, copy the code):"
+say "  https://github.com/settings/tokens?type=beta"
+say "  Permissions needed: Contents + Pull requests (Read/Write)"
+say ""
+say "Or press Enter to skip and log in with the browser later."
+ask "Paste GitHub token (or Enter to skip)" GH_TOKEN_IN "${GITHUB_TOKEN:-}"
+if [[ -n "${GH_TOKEN_IN}" ]]; then
+  upsert_env GITHUB_TOKEN "$GH_TOKEN_IN"
+  export GITHUB_TOKEN="$GH_TOKEN_IN"
+  ok "Saved GitHub token"
+else
+  say "OK — we will try browser login during install."
+fi
+
+# ========== 2) Notion ==========
+big "Step 2 of 4 — Notion (the to-do list)"
+say "Best: sign in with your browser (like a plugin)."
+say "Backup: paste a Notion secret."
+say ""
+
+NOTION_CONNECTED=0
+if [[ -n "${NOTION_TOKEN:-}" ]]; then
+  ok "Notion already connected"
+  NOTION_CONNECTED=1
+else
+  ask "Connect Notion how?  [1] browser sign-in  [2] paste secret" NOTION_MODE "1"
+  if [[ "${NOTION_MODE}" == "1" ]]; then
+    say "Opening Notion sign-in…"
+    if bash "${ROOT}/scripts/connect_notion.sh"; then
+      # shellcheck disable=SC1091
+      set -a; source .env; set +a
+      NOTION_CONNECTED=1
+      ok "Notion signed in"
+    else
+      say "Browser sign-in needs a one-time Public Notion app (see START_HERE.md)."
+      say "Falling back to paste-a-secret…"
+    fi
+  fi
+fi
+
+if [[ "${NOTION_CONNECTED}" -eq 0 ]]; then
+  say "Open: https://www.notion.so/my-integrations"
+  say "New integration → copy the Secret"
+  ask "Paste Notion secret (starts with secret_ or ntn_)" NOTION_IN "${NOTION_TOKEN:-}"
+  while [[ -z "${NOTION_IN}" ]]; do
+    say "Need this — Autocode reads your to-do list from Notion."
+    ask "Paste Notion secret" NOTION_IN ""
+  done
+  upsert_env NOTION_TOKEN "$NOTION_IN"
+  export NOTION_TOKEN="$NOTION_IN"
+  ok "Saved Notion secret"
+fi
+
+say ""
+say "Make a blank Notion page named Autocode Hub."
+say "On that page: ••• → Connections → allow Autocode."
+say "Then paste the page link from the browser."
+say ""
+ask "Paste Autocode Hub page link (or page id)" HUB_IN "${NOTION_HUB_PAGE:-}"
+while [[ -z "${HUB_IN}" ]]; do
+  say "Need the hub page so we can build the to-do databases for you."
+  ask "Paste Autocode Hub page link" HUB_IN ""
+done
+HUB_ID="$(notion_page_id_from_anything "$HUB_IN")"
+upsert_env NOTION_HUB_PAGE "$HUB_ID"
+export NOTION_HUB_PAGE="$HUB_ID"
+ok "Saved Notion hub page"
+
+# ========== 3) Repos ==========
+big "Step 3 of 4 — Which code should it work on?"
+say "Example:  brandonbrown15/Autocode"
+say "Or a full link:  https://github.com/you/your-project"
+say "You can list more than one, separated by spaces."
+ask "GitHub repo(s)" REPOS_IN "${WORKSPACE_REPOS:-}"
+if [[ -n "${REPOS_IN}" ]]; then
+  # normalize URLs to owner/name when possible
+  REPOS_NORM="$(python3 - "$REPOS_IN" <<'PY'
+import re, sys
+parts=[]
+for raw in sys.argv[1].split():
+    m=re.search(r"github\.com[:/]([^/]+)/([^/.]+)", raw)
+    parts.append(f"{m.group(1)}/{m.group(2)}" if m else raw)
+print(" ".join(parts))
+PY
+)"
+  upsert_env WORKSPACE_REPOS "$REPOS_NORM"
+  export WORKSPACE_REPOS="$REPOS_NORM"
+  ok "Saved repos: $REPOS_NORM"
+else
+  say "Skipped — you can add WORKSPACE_REPOS later in .env"
+fi
+
+# ========== 4) SSD ==========
+big "Step 4 of 4 — Big hard drive / SSD"
+say "If this computer has a big SSD (like 4TB), we will put models there."
+ask "SSD folder if you know it (or Enter to auto-find)" SSD_IN "${AUTOCODE_DATA_ROOT:-}"
+if [[ -n "$SSD_IN" ]]; then
+  upsert_env AUTOCODE_DATA_ROOT "$SSD_IN"
+  export AUTOCODE_DATA_ROOT="$SSD_IN"
+  ok "Will use $SSD_IN"
+else
+  ok "Will auto-find a big disk (or use defaults)"
+fi
+
+# Optional Telegram — skip by default for simplicity
+say ""
+say "Optional: Telegram for phone updates (press Enter to skip)."
+ask "Telegram bot token (or Enter)" TG_TOKEN_IN "${TELEGRAM_BOT_TOKEN:-}"
+if [[ -n "$TG_TOKEN_IN" ]]; then
+  ask "Telegram chat id" TG_CHAT_IN "${TELEGRAM_CHAT_ID:-}"
+  upsert_env TELEGRAM_BOT_TOKEN "$TG_TOKEN_IN"
+  upsert_env TELEGRAM_CHAT_ID "${TG_CHAT_IN:-}"
+fi
+
+big "Installing… this can take a while. Leave it alone."
+say "Coffee time is allowed. ☕"
+
+# Make sure helper scripts can run
+chmod +x start bootstrap/*.sh ollama/*.sh hermes/*.sh cron/*.sh scripts/*.sh notion/client.py 2>/dev/null || true
+
+# Run the full auto path with kid-safe defaults
+set +e
+bash "${ROOT}/scripts/go_live.sh" --local-only --first-night --enable-autopilot
+RC=$?
+set -e
+
+# If gh auth failed earlier because no token, try interactive once
+if ! gh auth status >/dev/null 2>&1; then
+  big "GitHub login needed"
+  say "A browser/device login will open. Follow the prompts."
+  if command -v gh >/dev/null 2>&1; then
+    gh auth login || true
+  fi
+fi
+
+say ""
+if [[ "$RC" -eq 0 ]]; then
+  big "Done! Autocode is set up."
+  say "What happens next:"
+  say "  • Tonight it can pick Ready tasks from Notion and open PRs"
+  say "  • Open the dashboard:   ./scripts/ui.sh"
+  say "    then visit http://127.0.0.1:8787/"
+  say "  • Or CLI status:        ./scripts/status.sh"
+  say "  • Pause it:             ./scripts/control.sh pause"
+  say ""
+  say "Add work in Notion → Build Queue → Status = Ready"
+  say "Keep the first tasks tiny (typos, docs)."
+  say ""
+  ok "You did it."
+  exit 0
+fi
+
+big "Setup finished with some warnings."
+say "That is OK — run this to see what is left:"
+say "  ./scripts/doctor.sh"
+say ""
+say "Then fix the FAIL lines and run again:"
+say "  ./start"
+exit "$RC"

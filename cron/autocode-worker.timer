@@ -1,0 +1,12 @@
+[Unit]
+Description=Autocode continuous worker timer (daytime coding)
+
+[Timer]
+# First tick a few minutes after boot, then every 30 minutes while active.
+OnBootSec=5min
+OnUnitActiveSec=30min
+Persistent=true
+Unit=autocode-worker.service
+
+[Install]
+WantedBy=timers.target

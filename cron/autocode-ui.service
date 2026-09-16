@@ -1,0 +1,17 @@
+[Unit]
+Description=Autocode local web dashboard (BrownHawke)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/autocode
+EnvironmentFile=-/opt/autocode/.env
+# Prefer Tailscale IP when AUTOCODE_UI_REMOTE=1 (see scripts/ui.sh)
+ExecStart=/opt/autocode/scripts/ui.sh
+Restart=on-failure
+RestartSec=5
+Nice=5
+
+[Install]
+WantedBy=default.target
