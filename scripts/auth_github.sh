@@ -21,7 +21,35 @@ if gh auth status >/dev/null 2>&1; then
 fi
 
 TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+# Trim BOM/CR/LF/spaces and accidental surrounding quotes from .env pastes
+TOKEN="${TOKEN#"${TOKEN%%[![:space:]]*}"}"
+TOKEN="${TOKEN%"${TOKEN##*[![:space:]]}"}"
+TOKEN="${TOKEN//$'\r'/}"
+if [[ "$TOKEN" == \"*\" && "$TOKEN" == *\" ]]; then TOKEN="${TOKEN:1:-1}"; fi
+if [[ "$TOKEN" == \'*\' && "$TOKEN" == *\' ]]; then TOKEN="${TOKEN:1:-1}"; fi
+
 if [[ -n "$TOKEN" ]]; then
+  # Safe diagnostics (never print the secret)
+  echo "Token loaded from env: length=${#TOKEN} prefix=${TOKEN:0:11}…"
+  if [[ ! "$TOKEN" =~ ^(ghp_|github_pat_) ]]; then
+    echo "WARN: token should start with ghp_ (classic) or github_pat_ (fine-grained)"
+  fi
+  if ! curl -fsS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${TOKEN}" \
+      -H "Accept: application/vnd.github+json" \
+      https://api.github.com/user | grep -q '^200$'; then
+    code="$(curl -sS -o /tmp/gh-token-check.json -w "%{http_code}" \
+      -H "Authorization: Bearer ${TOKEN}" \
+      -H "Accept: application/vnd.github+json" \
+      https://api.github.com/user || true)"
+    echo "FAIL: GitHub API returned HTTP ${code} for this token (401 = bad/revoked/expired)."
+    echo "  • Revoke old tokens that were pasted in chat"
+    echo "  • Create a NEW fine-grained PAT with Contents+Metadata on repo Hawkeye"
+    echo "  • Or use a classic PAT with 'repo' scope: https://github.com/settings/tokens"
+    echo "  • Ensure .env has exactly: GITHUB_TOKEN=github_pat_...  (no quotes, no spaces)"
+    echo "  • Or skip .env: gh auth login -h github.com -p https -w"
+    head -c 200 /tmp/gh-token-check.json 2>/dev/null; echo
+    exit 1
+  fi
   echo "$TOKEN" | gh auth login --with-token
   gh auth setup-git >/dev/null 2>&1 || true
   gh auth status
