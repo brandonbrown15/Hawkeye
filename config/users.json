@@ -1,6 +1,6 @@
 {
   "allowed_domain": "brownhawke.engineering",
   "users": {
-    "brandon@brownhawke.engineering": "pbkdf2_sha256$120000$d7121cf68292c49e51901b4bf9f94202$af8b97511a7e4dd2aab924f8fbacefbca20bc14d0c48621c90c47ed69b085b67"
+    "brandon@brownhawke.engineering": "pbkdf2_sha256$120000$cb2d2d961a2245e1ccbb83e4517a9616$5201054146977b8d0653cd04513d489a78c761b9771b5ff37c22c2259dadfa02"
   }
 }
