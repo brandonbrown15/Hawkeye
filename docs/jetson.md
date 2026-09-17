@@ -66,6 +66,70 @@ If doctor says **model coder-64k missing** after a successful create, you almost
 
 Non-root installs no longer need write access to `/opt`. Empty `WORKSPACE_ROOT` in `.env.example` falls back to `~/workspaces` or `$AUTOCODE_DATA_ROOT/workspaces`.
 
+## UI access, autostart, public URL, API tokens
+
+### Why `https://hawkeye.brownhawke.engineering` is blank
+The UI binds **`127.0.0.1:8787` only**. That hostname works only after a **Cloudflare Tunnel** on this Jetson points at that port. Until then the public site has nothing behind it.
+
+### Open the UI today
+```bash
+# On the Jetson itself (or via SSH tunnel from your laptop):
+./scripts/ui.sh
+# → http://127.0.0.1:8787/
+
+# From your laptop:
+ssh -L 8787:127.0.0.1:8787 shaggy@<jetson-ip>
+# then open http://127.0.0.1:8787/ on the laptop
+
+# Or Tailscale:
+sudo tailscale up
+./scripts/ui.sh --remote
+# → http://<tailscale-ip>:8787/
+```
+
+Login: work email `@brownhawke.engineering` + password from `config/users.json`  
+(`python3 scripts/set_work_user.py --email brandon@brownhawke.engineering --password '…'`).
+
+### Autostart on boot
+```bash
+./scripts/install_hawkeye_autostart.sh
+sudo loginctl enable-linger "$USER"
+systemctl --user status hawkeye-ui.service
+systemctl --user is-enabled hawkeye-ui.service
+```
+Also keep Ollama on boot: `sudo systemctl enable --now ollama`.
+
+### Public hostname (Cloudflare Tunnel)
+On a laptop/browser (Cloudflare dashboard):
+1. Zero Trust → Networks → Tunnels → **Create** → name `hawkeye`
+2. Copy the **token** (or install command)
+3. On the Jetson:
+```bash
+# install cloudflared (arm64)
+curl -fsSL https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64 -o /tmp/cloudflared
+sudo install -m 755 /tmp/cloudflared /usr/local/bin/cloudflared
+
+# put token in .env
+echo 'TUNNEL_TOKEN=eyJ…' >> ~/Hawkeye/.env
+
+# Public hostname in dashboard: hawkeye.brownhawke.engineering → http://127.0.0.1:8787
+
+./scripts/install_hawkeye_autostart.sh   # enables hawkeye-tunnel.service
+systemctl --user status hawkeye-tunnel.service
+```
+
+### Link API tokens in the UI (Account → Connections)
+After pulling a build that includes accounts-collab:
+1. Set an encryption key (once):
+```bash
+# add to .env — long random passphrase
+echo "HAWKEYE_MEMORY_KEY=$(openssl rand -hex 32)" >> .env
+```
+2. Open Hawkeye → sign in → **Account** → **Connections**
+3. Save Cloudflare / Notion / GitHub / Cursor / Claude / ChatGPT tokens per user  
+
+See [accounts.md](accounts.md). Machine `.env` still powers overnight autopilot; UI connections are per signed-in person.
+
 ## Phase 0 checklist
 
 - [ ] Boots from NVMe **or** root on eMMC + 4TB data SSD mounted (e.g. `/mnt/nvme`)
@@ -84,11 +148,11 @@ Non-root installs no longer need write access to `/opt`. Empty `WORKSPACE_ROOT` 
 - Smoke `/api/chat` (tiny `num_ctx` first)
 - Boot auto-start: `./scripts/install_hawkeye_autostart.sh` (UI + Ollama; tunnel when configured)
 
-**Gotcha:** Orin Nano **8GB** cannot load `qwen2.5-coder:7b` (`cudaMalloc failed: out of memory`). Default base is **`qwen2.5-coder:3b`**. AGX/32GB+ can set `BASE_MODEL=qwen2.5-coder:7b`.
+**Gotcha:** Orin Nano **8GB** often cannot load `7b` or even `3b` (`cudaMalloc failed`). Default is **`qwen2.5-coder:1.5b`**. Last resort: `OLLAMA_NUM_GPU=0` (CPU). Run `./ollama/prepare_jetson_memory.sh` before chat smoke.
 
-**Gotcha:** Listing models is not enough — chat needs `/usr/local/lib/ollama/llama-server`. If smoke returns `llama-server binary not found`, re-run `./ollama/install_ollama_jetson.sh` (or the Jetson AI Lab container).
+**Gotcha:** Listing models is not enough — chat needs `/usr/local/lib/ollama/llama-server`. If smoke returns `llama-server binary not found`, re-run `./ollama/install_ollama_jetson.sh`.
 
-**Gotcha:** GitHub rejects account passwords for `git`/`gh` — use a PAT (`./scripts/auth_github.sh`).
+**Gotcha:** GitHub rejects account passwords for `git`/`gh` — use a PAT (`./scripts/auth_github.sh`). Transient `Could not resolve host: github.com` is DNS/network — retry `git pull` later.
 
 ## Phase 2 — Hermes
 
