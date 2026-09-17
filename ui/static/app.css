@@ -614,6 +614,12 @@ h2 { font-size: 1.2rem; }
   padding: 1rem;
 }
 
+/* .task-drawer { display: grid } otherwise overrides the [hidden] UA rule
+   and leaves a full-screen overlay intercepting Account / Messages clicks. */
+.task-drawer[hidden] {
+  display: none !important;
+}
+
 .drawer-panel {
   width: min(520px, 100%);
   max-height: min(88vh, 720px);
