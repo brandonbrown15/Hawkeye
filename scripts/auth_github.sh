@@ -34,13 +34,11 @@ if [[ -n "$TOKEN" ]]; then
   if [[ ! "$TOKEN" =~ ^(ghp_|github_pat_) ]]; then
     echo "WARN: token should start with ghp_ (classic) or github_pat_ (fine-grained)"
   fi
-  if ! curl -fsS -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${TOKEN}" \
-      -H "Accept: application/vnd.github+json" \
-      https://api.github.com/user | grep -q '^200$'; then
-    code="$(curl -sS -o /tmp/gh-token-check.json -w "%{http_code}" \
-      -H "Authorization: Bearer ${TOKEN}" \
-      -H "Accept: application/vnd.github+json" \
-      https://api.github.com/user || true)"
+  code="$(curl -sS -o /tmp/gh-token-check.json -w "%{http_code}" \
+    -H "Authorization: Bearer ${TOKEN}" \
+    -H "Accept: application/vnd.github+json" \
+    https://api.github.com/user || true)"
+  if [[ "$code" != "200" ]]; then
     echo "FAIL: GitHub API returned HTTP ${code} for this token (401 = bad/revoked/expired)."
     echo "  • Revoke old tokens that were pasted in chat"
     echo "  • Create a NEW fine-grained PAT with Contents+Metadata on repo Hawkeye"
