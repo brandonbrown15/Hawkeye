@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Ensure Ollama is listening on OLLAMA_HOST before smoke / model create.
 # Safe to re-run. Prefer systemd when available; otherwise start a user serve.
+#
+# Usage:
+#   ./ollama/ensure_ollama.sh           # start if down
+#   ./ollama/ensure_ollama.sh --restart  # stop + start with current OLLAMA_MODELS
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -9,11 +13,61 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 
 HOST="${OLLAMA_HOST:-127.0.0.1:11434}"
 KEEP_ALIVE="${OLLAMA_KEEP_ALIVE:-24h}"
-WAIT_SEC="${OLLAMA_READY_WAIT_SEC:-60}"
+WAIT_SEC="${OLLAMA_READY_WAIT_SEC:-90}"
 URL="http://${HOST}/api/tags"
+RESTART=0
+[[ "${1:-}" == "--restart" || "${1:-}" == "-r" ]] && RESTART=1
 
 reachable() {
   curl -fsS --max-time 2 "$URL" >/dev/null 2>&1
+}
+
+stop_ollama() {
+  echo "Stopping Ollama so it can reload OLLAMA_MODELS=${OLLAMA_MODELS:-"(default)"}…"
+  if systemctl list-unit-files 2>/dev/null | grep -q '^ollama\.service'; then
+    sudo systemctl stop ollama 2>/dev/null || true
+  fi
+  # Background serve from a prior ensure_ollama run
+  if [[ -f "$ROOT/state/ollama-serve.pid" ]]; then
+    kill "$(cat "$ROOT/state/ollama-serve.pid")" 2>/dev/null || true
+    rm -f "$ROOT/state/ollama-serve.pid"
+  fi
+  pkill -f '[o]llama serve' 2>/dev/null || true
+  # Give the port a moment to free
+  sleep 1
+}
+
+start_via_systemd() {
+  if ! systemctl list-unit-files 2>/dev/null | grep -q '^ollama\.service'; then
+    return 1
+  fi
+  if [[ -n "${OLLAMA_MODELS:-}" ]] && command -v sudo >/dev/null 2>&1; then
+    sudo mkdir -p /etc/systemd/system/ollama.service.d
+    sudo tee /etc/systemd/system/ollama.service.d/autocode-models.conf >/dev/null <<EOF
+[Service]
+Environment="OLLAMA_MODELS=${OLLAMA_MODELS}"
+Environment="OLLAMA_KEEP_ALIVE=${KEEP_ALIVE}"
+Environment="OLLAMA_HOST=${HOST}"
+EOF
+    sudo systemctl daemon-reload
+  fi
+  if command -v sudo >/dev/null 2>&1; then
+    sudo systemctl enable --now ollama 2>/dev/null || sudo systemctl start ollama 2>/dev/null || return 1
+  else
+    systemctl --user start ollama 2>/dev/null || return 1
+  fi
+  return 0
+}
+
+start_background() {
+  mkdir -p "$HOME/.local/share/ollama" "$ROOT/logs" "$ROOT/state" 2>/dev/null || true
+  [[ -n "${OLLAMA_MODELS:-}" ]] && mkdir -p "$OLLAMA_MODELS"
+  export OLLAMA_HOST="$HOST" OLLAMA_KEEP_ALIVE="$KEEP_ALIVE"
+  [[ -n "${OLLAMA_MODELS:-}" ]] && export OLLAMA_MODELS
+  nohup ollama serve >>"$ROOT/logs/ollama-serve.log" 2>&1 &
+  echo $! >"$ROOT/state/ollama-serve.pid" 2>/dev/null || true
+  echo "Started background: ollama serve (log: logs/ollama-serve.log)"
+  [[ -n "${OLLAMA_MODELS:-}" ]] && echo "  OLLAMA_MODELS=$OLLAMA_MODELS"
 }
 
 if ! command -v ollama >/dev/null 2>&1; then
@@ -21,28 +75,22 @@ if ! command -v ollama >/dev/null 2>&1; then
   exit 1
 fi
 
-if reachable; then
+if [[ "$RESTART" -eq 1 ]]; then
+  stop_ollama
+elif reachable; then
   echo "Ollama already up at http://${HOST}"
+  if [[ -n "${OLLAMA_MODELS:-}" ]]; then
+    echo "Note: if you just changed OLLAMA_MODELS, re-run: ./ollama/ensure_ollama.sh --restart"
+  fi
   exit 0
 fi
 
 echo "Ollama not reachable at http://${HOST} — starting…"
+[[ -n "${OLLAMA_MODELS:-}" ]] && echo "  OLLAMA_MODELS=$OLLAMA_MODELS"
 
-if systemctl list-unit-files 2>/dev/null | grep -q '^ollama\.service'; then
-  if command -v sudo >/dev/null 2>&1; then
-    sudo systemctl enable --now ollama 2>/dev/null || sudo systemctl start ollama 2>/dev/null || true
-  else
-    systemctl --user start ollama 2>/dev/null || true
-  fi
-fi
-
+start_via_systemd || true
 if ! reachable; then
-  mkdir -p "$HOME/.local/share/ollama" "$ROOT/logs" "$ROOT/state" 2>/dev/null || true
-  export OLLAMA_HOST="$HOST" OLLAMA_KEEP_ALIVE="$KEEP_ALIVE"
-  [[ -n "${OLLAMA_MODELS:-}" ]] && export OLLAMA_MODELS
-  nohup ollama serve >>"$ROOT/logs/ollama-serve.log" 2>&1 &
-  echo $! >"$ROOT/state/ollama-serve.pid" 2>/dev/null || true
-  echo "Started background: ollama serve (log: logs/ollama-serve.log)"
+  start_background
 fi
 
 deadline=$((SECONDS + WAIT_SEC))

@@ -33,6 +33,7 @@ class ResolveWorkspaceRootTests(unittest.TestCase):
         text = path.read_text()
         self.assertIn("ollama serve", text)
         self.assertIn("api/tags", text)
+        self.assertIn("--restart", text)
 
 
 if __name__ == "__main__":

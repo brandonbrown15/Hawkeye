@@ -146,6 +146,10 @@ SSD layout ready under $DATA_ROOT:
   swap/        → SWAPFILE (see bootstrap/01_setup_swap.sh)
   logs/ state/ hermes/
 
+IMPORTANT — if Ollama is already running, reload it with the new models dir:
+  ./ollama/ensure_ollama.sh --restart
+  ./ollama/create_coder_64k.sh
+
 Next:
   sudo SWAPFILE=$DATA_ROOT/swap/autocode.swap ./bootstrap/01_setup_swap.sh \${AUTOCODE_SWAP_GB:-16}
   # optional systemd drop-in so Ollama keeps using the SSD after reboot:

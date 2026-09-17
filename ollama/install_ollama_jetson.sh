@@ -40,7 +40,7 @@ fi
 
 # Wait until the API answers (systemd or background serve).
 bash "$ROOT/ollama/ensure_ollama.sh" || {
-  echo "WARN: Ollama API not up yet. Later: ./ollama/ensure_ollama.sh"
+  echo "WARN: Ollama API not up yet. Later: ./ollama/ensure_ollama.sh --restart"
 }
 
 echo "Smoke: curl http://127.0.0.1:11434/api/tags"

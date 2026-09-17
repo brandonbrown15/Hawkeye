@@ -53,10 +53,16 @@ MODEL="${OLLAMA_MODEL:-coder-64k}"
 if command -v ollama >/dev/null 2>&1; then pass "ollama CLI"; else bad "ollama not installed"; fi
 if curl -fsS --max-time 3 "http://${HOST}/api/tags" >/dev/null 2>&1; then
   pass "ollama reachable at $HOST"
-  if curl -fsS "http://${HOST}/api/tags" | grep -q "\"${MODEL}\""; then
+  tags_json="$(curl -fsS --max-time 5 "http://${HOST}/api/tags" 2>/dev/null || echo '{}')"
+  if echo "$tags_json" | grep -Eq "\"name\"[[:space:]]*:[[:space:]]*\"${MODEL}(:[^\"]*)?\""; then
     pass "model $MODEL present"
+  elif command -v ollama >/dev/null 2>&1 && ollama list 2>/dev/null | awk 'NR>1{print $1}' | grep -Eq "^${MODEL}(:|$)"; then
+    pass "model $MODEL present (ollama list)"
   else
-    bad "model $MODEL missing — run ./ollama/create_coder_64k.sh"
+    bad "model $MODEL missing — run ./ollama/ensure_ollama.sh --restart && ./ollama/create_coder_64k.sh"
+    if [[ -n "${OLLAMA_MODELS:-}" ]]; then
+      warn_msg "OLLAMA_MODELS=$OLLAMA_MODELS — if you created the model before setting this, restart Ollama then recreate"
+    fi
   fi
 else
   bad "ollama not reachable at http://${HOST} — run ./ollama/ensure_ollama.sh"

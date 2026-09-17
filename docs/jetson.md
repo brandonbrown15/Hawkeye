@@ -27,20 +27,31 @@ See [go-live.md](go-live.md).
 
 ## After bootstrap — fix common FAILs
 
+**Order matters:** park data on SSD **before** creating models (or restart Ollama after).
+
 ```bash
-# Ollama not reachable (Hermes smoke / doctor FAIL)
-./ollama/ensure_ollama.sh
+# 1) Data root (NVMe or ~/autocode-data) — sets OLLAMA_MODELS
+./bootstrap/05_use_data_ssd.sh
+source .env   # or: export OLLAMA_MODELS=… from .env
+
+# 2) Restart Ollama so it uses OLLAMA_MODELS, then create coder-64k
+./ollama/ensure_ollama.sh --restart
 ./ollama/create_coder_64k.sh
 
-# /opt/workspaces Permission denied (non-root ~/Hawkeye install)
-./bootstrap/05_use_data_ssd.sh    # uses NVMe or ~/autocode-data — never requires /opt
-./scripts/clone_workspaces.sh     # rewrites WORKSPACE_ROOT to a writable path
+# 3) Hermes config (writes under HERMES_CONFIG_DIR from .env)
+./hermes/configure_local_primary.sh
 
-# gh not logged in
+# 4) GitHub
 ./scripts/auth_github.sh          # or: gh auth login / set GITHUB_TOKEN in .env
+
+# 5) Workspaces (optional)
+# edit .env: WORKSPACE_REPOS="https://github.com/you/app.git"
+./scripts/clone_workspaces.sh
 
 ./scripts/doctor.sh
 ```
+
+If doctor says **model coder-64k missing** after a successful create, you almost always created the model *before* `OLLAMA_MODELS` pointed at the SSD — run steps 2 again.
 
 Non-root installs no longer need write access to `/opt`. Empty `WORKSPACE_ROOT` in `.env.example` falls back to `~/workspaces` or `$AUTOCODE_DATA_ROOT/workspaces`.
 
