@@ -38,12 +38,14 @@ source .env   # or: export OLLAMA_MODELS=… from .env
 ./ollama/install_ollama_jetson.sh
 # If chat still says llama-server not found:
 #   OLLAMA_FORCE_REINSTALL=1 ./ollama/install_ollama_jetson.sh
+./ollama/prepare_jetson_memory.sh
 ./ollama/ensure_ollama.sh --restart
 ./ollama/create_coder_64k.sh
-# Orin Nano CUDA OOM on 7B → script defaults to qwen2.5-coder:3b.
-# Manual: BASE_MODEL=qwen2.5-coder:3b OLLAMA_NUM_CTX=8192 ./ollama/create_coder_64k.sh
+# Orin Nano: defaults to qwen2.5-coder:1.5b + 4k ctx.
+# Still OOM? CPU-only:
+#   OLLAMA_NUM_GPU=0 BASE_MODEL=qwen2.5-coder:1.5b OLLAMA_NUM_CTX=4096 ./ollama/create_coder_64k.sh
 # Prove: ollama run coder-64k OK
-# Optional free disk: ollama rm qwen2.5-coder:7b
+# Free disk: ollama rm qwen2.5-coder:7b qwen2.5-coder:3b
 
 # 3) Hermes config (writes under HERMES_CONFIG_DIR from .env)
 ./hermes/configure_local_primary.sh
