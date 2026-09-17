@@ -21,6 +21,7 @@ This is **not** the public [Autocode](https://github.com/brandonbrown15/Autocode
 | **Login** | `@brownhawke.engineering` work emails only |
 | **Domain** | Cloudflare Tunnel → `https://hawkeye.brownhawke.engineering` |
 | **Boot auto-start** | UI (+ tunnel) come back when the Jetson powers on |
+| **Auto-update** | Polls GitHub every 5 min; pulls `main`, refreshes `coder-64k`, restarts UI |
 
 ---
 
@@ -239,16 +240,34 @@ Never commit `memories.jsonl` or sync personal memory into public Autocode.
 
 Docs: [docs/memory.md](docs/memory.md) · [docs/research.md](docs/research.md)
 
-### 6. Boot auto-start
+### 6. Boot auto-start + auto-update
 
 ```bash
 ./scripts/install_hawkeye_autostart.sh
 # enables linger + hawkeye-ui.service
+# enables hawkeye-update.timer (polls GitHub every 5 min, pulls, restarts UI/LLM)
 # enables ollama when present
 # enables hawkeye-tunnel.service when cloudflared + config/token exist
 
 systemctl --user status hawkeye-ui.service
+systemctl --user list-timers hawkeye-update.timer
+./scripts/hawkeye_self_update.sh --check
 ./scripts/install_hawkeye_autostart.sh --disable   # later
+```
+
+When `main` moves on GitHub, the Jetson:
+
+1. `git fetch` / `git pull --ff-only`
+2. Recreates `coder-64k` if `ollama/Modelfile.coder-64k` changed
+3. Restarts `hawkeye-ui.service` so the new code is live
+
+Pause updates without stopping the UI: set `HAWKEYE_UPDATE_ENABLED=0` in `.env`.
+
+Manual refresh:
+
+```bash
+./scripts/hawkeye_self_update.sh          # pull if behind
+./scripts/hawkeye_self_update.sh --force  # also restart UI
 ```
 
 Overnight / continuous coding timers (separate):

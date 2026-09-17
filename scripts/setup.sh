@@ -100,8 +100,11 @@ check_layout() {
     cron/autocode-ui.service
     cron/hawkeye-ui.service
     cron/hawkeye-tunnel.service
+    cron/hawkeye-update.service
+    cron/hawkeye-update.timer
     cron/install_autopilot_timers.sh
     scripts/install_hawkeye_autostart.sh
+    scripts/hawkeye_self_update.sh
   )
   local missing=0
   for f in "${required[@]}"; do

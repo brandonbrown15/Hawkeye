@@ -1,0 +1,12 @@
+[Unit]
+Description=Hawkeye self-update timer (poll GitHub for new commits)
+
+[Timer]
+# Shortly after boot, then every 5 minutes while the box is up.
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=hawkeye-update.service
+
+[Install]
+WantedBy=timers.target

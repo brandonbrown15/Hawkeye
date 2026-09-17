@@ -1,0 +1,193 @@
+#!/usr/bin/env bash
+# Pull latest Hawkeye from GitHub and refresh local UI + Ollama when needed.
+#
+# Usage:
+#   ./scripts/hawkeye_self_update.sh           # no-op if already up to date
+#   ./scripts/hawkeye_self_update.sh --force   # restart UI even if no git change
+#   ./scripts/hawkeye_self_update.sh --check   # print status only
+#
+# Env:
+#   HAWKEYE_UPDATE_ENABLED=0     skip updates (timer still fires, exits 0)
+#   HAWKEYE_UPDATE_BRANCH=main  remote branch to track
+#   HAWKEYE_UPDATE_REMOTE=origin
+#   HAWKEYE_UPDATE_RECREATE_MODEL=1  rebuild coder-64k when Modelfile changes
+#
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+# shellcheck disable=SC1091
+[[ -f "$ROOT/.env" ]] && set -a && source "$ROOT/.env" && set +a || true
+
+FORCE=0
+CHECK_ONLY=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --force) FORCE=1; shift ;;
+    --check) CHECK_ONLY=1; shift ;;
+    -h|--help)
+      sed -n '2,18p' "$0"
+      exit 0
+      ;;
+    *) echo "Unknown arg: $1" >&2; exit 1 ;;
+  esac
+done
+
+ENABLED="${HAWKEYE_UPDATE_ENABLED:-1}"
+BRANCH="${HAWKEYE_UPDATE_BRANCH:-main}"
+REMOTE="${HAWKEYE_UPDATE_REMOTE:-origin}"
+RECREATE_MODEL="${HAWKEYE_UPDATE_RECREATE_MODEL:-1}"
+LOG_DIR="${ROOT}/logs"
+STATE_DIR="${ROOT}/state"
+mkdir -p "$LOG_DIR" "$STATE_DIR"
+LOG="$LOG_DIR/self-update.log"
+LOCK="$STATE_DIR/self-update.lock"
+MODELFILE_HASH="$STATE_DIR/coder-64k.modelfile.sha256"
+
+log() {
+  local line="[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"
+  echo "$line" | tee -a "$LOG"
+}
+
+sysctl_user() {
+  if systemctl --user status hawkeye-ui.service >/dev/null 2>&1 \
+    || systemctl --user list-unit-files hawkeye-ui.service 2>/dev/null | grep -q hawkeye-ui; then
+    systemctl --user "$@"
+    return $?
+  fi
+  return 1
+}
+
+if [[ "$ENABLED" != "1" && "$FORCE" -eq 0 && "$CHECK_ONLY" -eq 0 ]]; then
+  log "HAWKEYE_UPDATE_ENABLED=${ENABLED} — skipping"
+  exit 0
+fi
+
+exec 9>"$LOCK"
+if ! flock -n 9; then
+  log "Another self-update is running — skip"
+  exit 0
+fi
+
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  log "ERROR: $ROOT is not a git checkout"
+  exit 1
+fi
+
+DIRTY=0
+if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+  DIRTY=1
+fi
+
+BEFORE="$(git rev-parse HEAD)"
+log "Fetch ${REMOTE}/${BRANCH} (at ${BEFORE:0:8})"
+if ! git fetch --quiet "$REMOTE" "$BRANCH"; then
+  log "ERROR: git fetch failed (check SSH key / gh auth / network)"
+  exit 1
+fi
+
+REMOTE_REV="$(git rev-parse "${REMOTE}/${BRANCH}")"
+if [[ "$CHECK_ONLY" -eq 1 ]]; then
+  if [[ "$BEFORE" == "$REMOTE_REV" ]]; then
+    echo "up-to-date ${BEFORE:0:8} (${REMOTE}/${BRANCH})"
+  else
+    echo "behind local=${BEFORE:0:8} remote=${REMOTE_REV:0:8}"
+  fi
+  [[ "$DIRTY" -eq 1 ]] && echo "working-tree=dirty"
+  exit 0
+fi
+
+if [[ "$DIRTY" -eq 1 ]]; then
+  log "WARN: working tree dirty — refusing auto-pull (commit/stash local edits first)"
+  if [[ "$FORCE" -eq 0 ]]; then
+    exit 0
+  fi
+  log "WARN: --force with dirty tree; will restart services only (no pull)"
+fi
+
+UPDATED=0
+if [[ "$BEFORE" != "$REMOTE_REV" ]]; then
+  if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
+    log "ERROR: cannot pull while dirty"
+    exit 1
+  fi
+  # Stay on the tracking branch if already on it; otherwise hard-reset to remote tip.
+  current="$(git rev-parse --abbrev-ref HEAD)"
+  if [[ "$current" == "$BRANCH" ]]; then
+    git pull --ff-only "$REMOTE" "$BRANCH"
+  else
+    log "On branch ${current}; fast-forwarding checkout to ${REMOTE}/${BRANCH}"
+    git checkout "$BRANCH"
+    git pull --ff-only "$REMOTE" "$BRANCH"
+  fi
+  AFTER="$(git rev-parse HEAD)"
+  log "Updated ${BEFORE:0:8} → ${AFTER:0:8}"
+  UPDATED=1
+else
+  log "Already up to date (${BEFORE:0:8})"
+  AFTER="$BEFORE"
+fi
+
+# Keep Ollama alive / warm for local LLM chat.
+if command -v systemctl >/dev/null 2>&1; then
+  if systemctl list-unit-files 2>/dev/null | grep -q '^ollama\.service'; then
+    sudo systemctl start ollama 2>/dev/null || true
+  fi
+fi
+if command -v ollama >/dev/null 2>&1; then
+  # Touch tags so the daemon is awake; ignore failures if still starting.
+  curl -fsS "http://${OLLAMA_HOST:-127.0.0.1:11434}/api/tags" >/dev/null 2>&1 || true
+fi
+
+# Rebuild coder-64k when Modelfile changed (or first run after enable).
+MODELFILE="$ROOT/ollama/Modelfile.coder-64k"
+if [[ "$RECREATE_MODEL" == "1" && -f "$MODELFILE" ]] && command -v ollama >/dev/null 2>&1; then
+  new_hash="$(sha256sum "$MODELFILE" | awk '{print $1}')"
+  old_hash=""
+  [[ -f "$MODELFILE_HASH" ]] && old_hash="$(cat "$MODELFILE_HASH" 2>/dev/null || true)"
+  if [[ "$UPDATED" -eq 1 && "$new_hash" != "$old_hash" ]] || [[ "$FORCE" -eq 1 && ! -f "$MODELFILE_HASH" ]]; then
+    log "Modelfile changed — recreating coder-64k"
+    if bash "$ROOT/ollama/create_coder_64k.sh"; then
+      echo "$new_hash" >"$MODELFILE_HASH"
+      log "coder-64k ready"
+    else
+      log "WARN: create_coder_64k.sh failed — UI will still restart"
+    fi
+  elif [[ "$new_hash" != "$old_hash" && -z "$old_hash" ]]; then
+    # First successful track of hash without forcing a rebuild if model already exists.
+    echo "$new_hash" >"$MODELFILE_HASH"
+  fi
+fi
+
+# Refresh systemd unit files from the checkout when we pulled new ones.
+if [[ "$UPDATED" -eq 1 || "$FORCE" -eq 1 ]]; then
+  UNIT_DIR="${HOME}/.config/systemd/user"
+  if [[ -d "$UNIT_DIR" ]]; then
+    rewrite_one() {
+      local src="$1" dest="$2"
+      [[ -f "$src" ]] || return 0
+      sed "s|/opt/autocode|${ROOT}|g" "$src" >"$dest"
+    }
+    rewrite_one "$ROOT/cron/hawkeye-ui.service" "$UNIT_DIR/hawkeye-ui.service"
+    rewrite_one "$ROOT/cron/hawkeye-tunnel.service" "$UNIT_DIR/hawkeye-tunnel.service"
+    rewrite_one "$ROOT/cron/hawkeye-update.service" "$UNIT_DIR/hawkeye-update.service"
+    if [[ -f "$ROOT/cron/hawkeye-update.timer" ]]; then
+      cp "$ROOT/cron/hawkeye-update.timer" "$UNIT_DIR/hawkeye-update.timer"
+    fi
+    systemctl --user daemon-reload 2>/dev/null || true
+    log "Refreshed systemd user units under ${UNIT_DIR}"
+  fi
+fi
+
+if [[ "$UPDATED" -eq 1 || "$FORCE" -eq 1 ]]; then
+  if sysctl_user restart hawkeye-ui.service; then
+    log "Restarted hawkeye-ui.service"
+  else
+    log "WARN: could not restart hawkeye-ui.service (is autostart installed?)"
+    log "       Run: ./scripts/install_hawkeye_autostart.sh"
+  fi
+  # Tunnel usually does not need a restart on app-only updates.
+fi
+
+log "Done (updated=${UPDATED})"
+exit 0

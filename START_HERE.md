@@ -34,6 +34,7 @@ Full details: **[README.md](README.md)** · private deploy: **[docs/hawkeye.md](
 |---------|---------|
 | Open the dashboard | `./scripts/ui.sh` → http://127.0.0.1:8787/ |
 | Start on every boot | `./scripts/install_hawkeye_autostart.sh` |
+| Pull GitHub updates | `./scripts/hawkeye_self_update.sh` (timer does this every 5 min) |
 | Recreate local coder | `./ollama/create_coder_64k.sh` |
 | Better chat memory | `ollama pull nomic-embed-text` |
 | Remote phone view | `./scripts/ui.sh --remote` (Tailscale) |

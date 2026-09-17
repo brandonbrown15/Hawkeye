@@ -95,13 +95,14 @@ AUTOCODE_UI_SECURE=1
 
 Alternative: Tailscale only (`./scripts/ui.sh --remote`) — no public hostname required.
 
-## 4. Auto-start on Jetson boot
+## 4. Auto-start + auto-update on Jetson
 
-So Hawkeye comes back when the box powers on:
+So Hawkeye comes back when the box powers on, and picks up GitHub changes automatically:
 
 ```bash
 ./scripts/install_hawkeye_autostart.sh
 # enables hawkeye-ui.service (+ linger so it starts without a login)
+# enables hawkeye-update.timer (every 5 min: git pull → refresh coder-64k if needed → restart UI)
 # enables ollama.service when present
 # enables hawkeye-tunnel.service when cloudflared + config/token exist
 ```
@@ -112,7 +113,10 @@ Check / disable:
 
 ```bash
 systemctl --user status hawkeye-ui.service
+systemctl --user list-timers hawkeye-update.timer
+./scripts/hawkeye_self_update.sh --check
 ./scripts/install_hawkeye_autostart.sh --disable
+# pause updates only: HAWKEYE_UPDATE_ENABLED=0 in .env
 ```
 
 ## 5. Phone use
