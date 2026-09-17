@@ -45,6 +45,16 @@ class ResolveWorkspaceRootTests(unittest.TestCase):
         ).strip()
         self.assertEqual(out, "8192")
 
+    def test_default_base_model_script(self) -> None:
+        script = ROOT / "ollama" / "default_base_model.sh"
+        self.assertTrue(script.is_file())
+        out = subprocess.check_output(
+            ["bash", str(script)],
+            env={**os.environ, "BASE_MODEL": "qwen2.5-coder:3b"},
+            text=True,
+        ).strip()
+        self.assertEqual(out, "qwen2.5-coder:3b")
+
 
 if __name__ == "__main__":
     unittest.main()

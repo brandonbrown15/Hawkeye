@@ -1,8 +1,8 @@
-# create_coder_64k.sh rewrites PARAMETER num_ctx from OLLAMA_NUM_CTX
-# (Jetson default 16384 — 65536 often OOMs a 7B model on Orin Nano).
-FROM qwen2.5-coder:7b
+# create_coder_64k.sh rewrites FROM + PARAMETER num_ctx from env.
+# Jetson Orin Nano default: qwen2.5-coder:3b + num_ctx 8192 (7B CUDA-OOMs on 8GB).
+FROM qwen2.5-coder:3b
 
-PARAMETER num_ctx 16384
+PARAMETER num_ctx 8192
 PARAMETER temperature 0.2
 PARAMETER top_p 0.9
 

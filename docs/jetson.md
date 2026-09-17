@@ -40,7 +40,10 @@ source .env   # or: export OLLAMA_MODELS=… from .env
 #   OLLAMA_FORCE_REINSTALL=1 ./ollama/install_ollama_jetson.sh
 ./ollama/ensure_ollama.sh --restart
 ./ollama/create_coder_64k.sh
+# Orin Nano CUDA OOM on 7B → script defaults to qwen2.5-coder:3b.
+# Manual: BASE_MODEL=qwen2.5-coder:3b OLLAMA_NUM_CTX=8192 ./ollama/create_coder_64k.sh
 # Prove: ollama run coder-64k OK
+# Optional free disk: ollama rm qwen2.5-coder:7b
 
 # 3) Hermes config (writes under HERMES_CONFIG_DIR from .env)
 ./hermes/configure_local_primary.sh
@@ -79,11 +82,9 @@ Non-root installs no longer need write access to `/opt`. Empty `WORKSPACE_ROOT` 
 - Smoke `/api/chat` (tiny `num_ctx` first)
 - Boot auto-start: `./scripts/install_hawkeye_autostart.sh` (UI + Ollama; tunnel when configured)
 
+**Gotcha:** Orin Nano **8GB** cannot load `qwen2.5-coder:7b` (`cudaMalloc failed: out of memory`). Default base is **`qwen2.5-coder:3b`**. AGX/32GB+ can set `BASE_MODEL=qwen2.5-coder:7b`.
+
 **Gotcha:** Listing models is not enough — chat needs `/usr/local/lib/ollama/llama-server`. If smoke returns `llama-server binary not found`, re-run `./ollama/install_ollama_jetson.sh` (or the Jetson AI Lab container).
-
-**Gotcha:** 7B + `num_ctx 65536` often returns **HTTP 500** on Orin Nano (KV cache OOM). Use `OLLAMA_NUM_CTX=8192` or `16384`, recreate the model, verify with `ollama run coder-64k OK`.
-
-**Gotcha:** Ollama `/v1` can still fail when native `/api/chat` works. Prefer Modelfile `PARAMETER num_ctx`, `OLLAMA_CONTEXT_LENGTH`, and Hermes `/api/chat`. Verify with `ollama ps`.
 
 **Gotcha:** GitHub rejects account passwords for `git`/`gh` — use a PAT (`./scripts/auth_github.sh`).
 

@@ -6,13 +6,14 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck disable=SC1091
 [[ -f "$ROOT/.env" ]] && source "$ROOT/.env"
 
-BASE_MODEL="${BASE_MODEL:-qwen2.5-coder:7b}"
+BASE_MODEL="$(bash "$ROOT/ollama/default_base_model.sh")"
 TARGET_MODEL="${OLLAMA_MODEL:-coder-64k}"
 HOST="${OLLAMA_HOST:-127.0.0.1:11434}"
 NUM_CTX="$(bash "$ROOT/ollama/default_num_ctx.sh")"
 export OLLAMA_NUM_CTX="$NUM_CTX"
+export BASE_MODEL
 
-# Persist Jetson-safe ctx into .env when missing / still at an unsafe 65536 on tegra.
+# Persist Jetson-safe defaults into .env
 ENV_FILE="$ROOT/.env"
 if [[ -f "$ENV_FILE" ]]; then
   if ! grep -q '^OLLAMA_NUM_CTX=' "$ENV_FILE" 2>/dev/null \
@@ -22,7 +23,13 @@ if [[ -f "$ENV_FILE" ]]; then
     echo "OLLAMA_NUM_CTX=${NUM_CTX}" >>"$ENV_FILE"
     echo "Updated .env OLLAMA_NUM_CTX=${NUM_CTX}"
   fi
+  if [[ -f /etc/nv_tegra_release ]] && ! grep -q '^BASE_MODEL=' "$ENV_FILE" 2>/dev/null; then
+    echo "BASE_MODEL=${BASE_MODEL}" >>"$ENV_FILE"
+    echo "Updated .env BASE_MODEL=${BASE_MODEL}"
+  fi
 fi
+
+echo "Base model: $BASE_MODEL"
 
 # Make sure daemon is up *with* current OLLAMA_MODELS (SSD path).
 bash "$ROOT/ollama/ensure_ollama.sh"
@@ -77,6 +84,12 @@ else
     echo "  Fix:  ./ollama/install_ollama_jetson.sh"
     echo "  Or:   OLLAMA_FORCE_REINSTALL=1 ./ollama/install_ollama_jetson.sh"
     echo "  Then: ./ollama/ensure_ollama.sh --restart && ./ollama/create_coder_64k.sh"
+  elif grep -qi 'out of memory\|cudaMalloc\|unable to allocate CUDA' /tmp/coder-64k-smoke-tiny.json 2>/dev/null; then
+    echo
+    echo "Root cause: GPU/unified memory OOM (7B is too big for Orin Nano 8GB)."
+    echo "  Fix:  BASE_MODEL=qwen2.5-coder:3b OLLAMA_NUM_CTX=8192 ./ollama/create_coder_64k.sh"
+    echo "  Or:   BASE_MODEL=qwen2.5-coder:1.5b OLLAMA_NUM_CTX=8192 ./ollama/create_coder_64k.sh"
+    echo "  Free: ollama rm qwen2.5-coder:7b   # optional, frees disk not VRAM until unload"
   else
     echo "  Check: logs/ollama-serve.log (often VRAM / GPU)"
     echo "  Try:   ollama run ${TARGET_MODEL} OK"
