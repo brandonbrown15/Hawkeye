@@ -893,6 +893,21 @@ class Handler(BaseHTTPRequestHandler):
     def _session_token(self) -> str | None:
         return ui_auth.parse_session_cookie(self.headers.get("Cookie"))
 
+    def _current_user(self) -> str | None:
+        user = ui_auth.session_user(self._session_token())
+        if user:
+            return user
+        if not ui_auth.private_mode_enabled():
+            return "open@local"
+        return None
+
+    def _require_user(self) -> str | None:
+        user = self._current_user()
+        if user:
+            return user
+        self._send(*json_response({"ok": False, "error": "login required"}, 401))
+        return None
+
     def _wants_secure_cookie(self) -> bool:
         if env_truthy("AUTOCODE_UI_SECURE"):
             return True
@@ -954,6 +969,15 @@ class Handler(BaseHTTPRequestHandler):
             )
             return self._static(name, ctype)
         if path == "/api/auth":
+            user = self._current_user() if self._authed() or not ui_auth.private_mode_enabled() else None
+            profile = None
+            if user and user != "open@local":
+                try:
+                    from ui import accounts
+
+                    profile = accounts.get_profile(user)
+                except Exception:  # noqa: BLE001
+                    profile = None
             return self._send(
                 *json_response(
                     {
@@ -964,6 +988,8 @@ class Handler(BaseHTTPRequestHandler):
                         "public_host": ui_auth.public_host(),
                         "allowed_email_domain": ui_auth.allowed_email_domain(),
                         "authed": self._authed(),
+                        "user": user if user != "open@local" else None,
+                        "profile": profile,
                     }
                 )
             )
@@ -977,6 +1003,60 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(*json_response(snapshot()))
         if path == "/api/ready":
             return self._send(*json_response(readiness()))
+        if path == "/api/me":
+            user = self._require_user()
+            if not user:
+                return
+            from ui import accounts
+
+            return self._send(*json_response({"ok": True, "profile": accounts.get_profile(user)}))
+        if path == "/api/users":
+            user = self._require_user()
+            if not user:
+                return
+            from ui import accounts
+
+            return self._send(*json_response({"ok": True, "users": accounts.list_directory()}))
+        if path == "/api/connections":
+            user = self._require_user()
+            if not user:
+                return
+            from ui import connections
+
+            return self._send(*json_response(connections.list_connections(user)))
+        if path == "/api/account/projects":
+            user = self._require_user()
+            if not user:
+                return
+            from ui import team_projects
+
+            return self._send(*json_response(team_projects.list_projects(user)))
+        if path.startswith("/api/account/projects/"):
+            user = self._require_user()
+            if not user:
+                return
+            from ui import team_projects
+
+            pid = path.split("/api/account/projects/", 1)[1].strip("/")
+            try:
+                return self._send(*json_response(team_projects.get_project(user, pid)))
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 404))
+        if path == "/api/messages/threads":
+            user = self._require_user()
+            if not user:
+                return
+            from ui import messages
+
+            return self._send(*json_response(messages.list_threads(user)))
+        if path.startswith("/api/messages/threads/"):
+            user = self._require_user()
+            if not user:
+                return
+            from ui import messages
+
+            tid = path.split("/api/messages/threads/", 1)[1].strip("/")
+            return self._send(*json_response(messages.get_thread(user, tid)))
         if path == "/api/logs":
             return self._send(*json_response(latest_log_tail()))
         if path == "/api/demo":
@@ -1045,8 +1125,28 @@ class Handler(BaseHTTPRequestHandler):
                         401,
                     )
                 )
+            # Optional first-time profile fields on login.
+            if any(k in data for k in ("first_name", "last_name", "employee_number")):
+                try:
+                    from ui import accounts
+
+                    accounts.update_profile(
+                        ui_auth.session_user(sess) or email,
+                        first_name=str(data.get("first_name") or "") or None,
+                        last_name=str(data.get("last_name") or "") or None,
+                        employee_number=str(data.get("employee_number") or "") or None,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    print(f"[ui] profile update on login failed: {e}")
+            profile = None
+            try:
+                from ui import accounts
+
+                profile = accounts.get_profile(ui_auth.session_user(sess) or email)
+            except Exception:  # noqa: BLE001
+                profile = None
             return self._send(
-                *json_response({"ok": True, "token": TOKEN}),
+                *json_response({"ok": True, "token": TOKEN, "profile": profile}),
                 extra_headers=[
                     (
                         "Set-Cookie",
@@ -1066,6 +1166,173 @@ class Handler(BaseHTTPRequestHandler):
             return
         if not self._ok_token(data):
             return self._send(*json_response({"ok": False, "error": "bad token"}, 403))
+        if path == "/api/me":
+            user = self._require_user()
+            if not user:
+                return
+            from ui import accounts
+
+            try:
+                profile = accounts.update_profile(
+                    user,
+                    first_name=None if "first_name" not in data else str(data.get("first_name") or ""),
+                    last_name=None if "last_name" not in data else str(data.get("last_name") or ""),
+                    employee_number=None
+                    if "employee_number" not in data
+                    else str(data.get("employee_number") or ""),
+                )
+                return self._send(*json_response({"ok": True, "profile": profile}))
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
+        if path.startswith("/api/connections/"):
+            user = self._require_user()
+            if not user:
+                return
+            from ui import connections
+
+            provider = path.split("/api/connections/", 1)[1].strip("/").lower()
+            action = str(data.get("action") or "connect").lower()
+            try:
+                if action in ("disconnect", "delete", "revoke"):
+                    out = connections.disconnect(user, provider)
+                else:
+                    secrets_in = data.get("secrets") if isinstance(data.get("secrets"), dict) else {}
+                    # Also accept flat field names on the body.
+                    for field in connections.PROVIDER_META.get(provider, {}).get("fields", []):
+                        if field in data and field not in secrets_in:
+                            secrets_in[field] = data.get(field)
+                    out = connections.set_connection(
+                        user,
+                        provider,
+                        secrets={k: str(v) for k, v in secrets_in.items()},
+                        account_label=str(data.get("account_label") or "") or None,
+                    )
+                return self._send(*json_response(out))
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
+        if path == "/api/account/projects":
+            user = self._require_user()
+            if not user:
+                return
+            from ui import team_projects
+
+            try:
+                return self._send(
+                    *json_response(
+                        team_projects.create_project(
+                            user,
+                            name=str(data.get("name") or ""),
+                            description=str(data.get("description") or ""),
+                            notion_board_id=str(data.get("notion_board_id") or ""),
+                        )
+                    )
+                )
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
+        if path.startswith("/api/account/projects/") and path.endswith("/share"):
+            user = self._require_user()
+            if not user:
+                return
+            from ui import team_projects
+
+            pid = path[len("/api/account/projects/") : -len("/share")].strip("/")
+            try:
+                return self._send(
+                    *json_response(
+                        team_projects.share_project(
+                            user,
+                            pid,
+                            member_email=str(data.get("email") or data.get("member_email") or ""),
+                            role=str(data.get("role") or "editor"),
+                        )
+                    )
+                )
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
+        if path.startswith("/api/account/projects/") and path.endswith("/unshare"):
+            user = self._require_user()
+            if not user:
+                return
+            from ui import team_projects
+
+            pid = path[len("/api/account/projects/") : -len("/unshare")].strip("/")
+            try:
+                return self._send(
+                    *json_response(
+                        team_projects.unshare_project(
+                            user,
+                            pid,
+                            str(data.get("email") or data.get("member_email") or ""),
+                        )
+                    )
+                )
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
+        if path.startswith("/api/account/projects/") and (
+            str(data.get("_method") or "").upper() == "DELETE"
+            or str(data.get("action") or "").lower() == "delete"
+        ):
+            user = self._require_user()
+            if not user:
+                return
+            from ui import team_projects
+
+            pid = path.split("/api/account/projects/", 1)[1].strip("/")
+            try:
+                return self._send(*json_response(team_projects.delete_project(user, pid)))
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
+        if path.startswith("/api/account/projects/"):
+            user = self._require_user()
+            if not user:
+                return
+            from ui import team_projects
+
+            pid = path.split("/api/account/projects/", 1)[1].strip("/")
+            try:
+                return self._send(
+                    *json_response(
+                        team_projects.update_project(
+                            user,
+                            pid,
+                            name=None if "name" not in data else str(data.get("name") or ""),
+                            description=None
+                            if "description" not in data
+                            else str(data.get("description") or ""),
+                            notion_board_id=None
+                            if "notion_board_id" not in data
+                            else str(data.get("notion_board_id") or ""),
+                        )
+                    )
+                )
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
+        if path == "/api/messages":
+            user = self._require_user()
+            if not user:
+                return
+            from ui import messages
+
+            try:
+                return self._send(
+                    *json_response(
+                        messages.send_message(
+                            user,
+                            str(data.get("to") or data.get("email") or ""),
+                            str(data.get("body") or data.get("message") or ""),
+                        )
+                    )
+                )
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
+        if path.startswith("/api/messages/threads/") and path.endswith("/read"):
+            user = self._require_user()
+            if not user:
+                return
+            from ui import messages
+
+            tid = path[len("/api/messages/threads/") : -len("/read")].strip("/")
+            return self._send(*json_response(messages.mark_thread_read(user, tid)))
         if path == "/api/control":
             return self._send(
                 *json_response(

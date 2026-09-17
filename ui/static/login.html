@@ -64,6 +64,17 @@
       padding: 0.35rem;
       background: #fff;
     }
+    .login-profile {
+      margin-top: 1rem;
+      border-top: 1px solid rgba(0,45,98,0.12);
+      padding-top: 0.75rem;
+    }
+    .login-profile summary {
+      cursor: pointer;
+      color: #002d62;
+      font-size: 0.92rem;
+      margin-bottom: 0.35rem;
+    }
   </style>
 </head>
 <body>
@@ -77,6 +88,15 @@
       <input id="user" name="email" type="email" autocomplete="username" placeholder="you@brownhawke.engineering" required />
       <label for="pass">Password</label>
       <input id="pass" name="password" type="password" autocomplete="current-password" required />
+      <details class="login-profile">
+        <summary>First-time profile (name + employee #)</summary>
+        <label for="firstName">First name</label>
+        <input id="firstName" name="first_name" autocomplete="given-name" />
+        <label for="lastName">Last name</label>
+        <input id="lastName" name="last_name" autocomplete="family-name" />
+        <label for="empNo">Employee number</label>
+        <input id="empNo" name="employee_number" autocomplete="off" placeholder="BH-0042" />
+      </details>
       <button class="btn primary" type="submit">Sign in</button>
       <p class="login-err" id="err" role="alert"></p>
     </form>
@@ -88,11 +108,18 @@
       err.textContent = "";
       const email = document.getElementById("user").value.trim();
       const password = document.getElementById("pass").value;
+      const first_name = document.getElementById("firstName").value.trim();
+      const last_name = document.getElementById("lastName").value.trim();
+      const employee_number = document.getElementById("empNo").value.trim();
       try {
+        const body = { email, username: email, password };
+        if (first_name) body.first_name = first_name;
+        if (last_name) body.last_name = last_name;
+        if (employee_number) body.employee_number = employee_number;
         const r = await fetch("/api/login", {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ email, username: email, password }),
+          body: JSON.stringify(body),
         });
         const data = await r.json().catch(() => ({}));
         if (!r.ok || data.ok === false) {

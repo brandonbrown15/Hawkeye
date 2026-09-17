@@ -471,9 +471,345 @@
   setInterval(() => { refreshOps().catch(() => {}); }, 4000);
   setInterval(() => { loadBoard().catch(() => {}); }, 20000);
 
+  let currentUser = null;
+  let dmThreadId = null;
+  let coworkers = [];
+
+  function openAccount(tab) {
+    const dlg = document.getElementById("accountDialog");
+    if (!dlg) return;
+    if (tab) switchAccountTab(tab);
+    if (typeof dlg.showModal === "function") dlg.showModal();
+    loadAccountData().catch((e) => toast(String(e.message || e)));
+  }
+
+  function switchAccountTab(tab) {
+    document.querySelectorAll(".account-tab").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.tab === tab);
+    });
+    document.querySelectorAll(".account-pane").forEach((pane) => {
+      pane.classList.toggle("is-active", pane.dataset.pane === tab);
+    });
+  }
+
+  async function loadAccountData() {
+    const [me, conns, projects, threads, users] = await Promise.all([
+      get("/api/me"),
+      get("/api/connections"),
+      get("/api/account/projects"),
+      get("/api/messages/threads"),
+      get("/api/users"),
+    ]);
+    const profile = me.profile || {};
+    currentUser = profile.email || currentUser;
+    document.getElementById("profFirst").value = profile.first_name || "";
+    document.getElementById("profLast").value = profile.last_name || "";
+    document.getElementById("profEmp").value = profile.employee_number || "";
+    document.getElementById("profEmail").textContent = profile.email || "";
+    renderConnections(conns);
+    renderAccountProjects(projects.projects || []);
+    renderMineProjects(projects.projects || []);
+    coworkers = (users.users || []).filter((u) => u.email !== currentUser);
+    renderDmStart(coworkers);
+    renderDmThreads(threads);
+    updateMsgBadge(threads.unread_total || 0);
+  }
+
+  function renderConnections(data) {
+    const note = document.getElementById("connEncryptNote");
+    if (note) {
+      note.textContent = data.encryption_ready
+        ? "Secret encryption is on (HAWKEYE_MEMORY_KEY / HAWKEYE_SECRETS_KEY)."
+        : "Set HAWKEYE_MEMORY_KEY (or HAWKEYE_SECRETS_KEY) so connection secrets encrypt at rest.";
+    }
+    const list = document.getElementById("connectionsList");
+    if (!list) return;
+    list.innerHTML = "";
+    const providers = data.providers || {};
+    for (const id of Object.keys(providers)) {
+      const p = providers[id];
+      const card = document.createElement("article");
+      card.className = "conn-card";
+      const head = document.createElement("div");
+      head.className = "conn-head";
+      head.innerHTML = `<strong>${p.label}</strong><span class="conn-status ${p.status === "connected" ? "on" : "off"}">${p.status}</span>`;
+      const hint = document.createElement("p");
+      hint.className = "section-note";
+      hint.textContent = p.hint || "";
+      const fields = document.createElement("div");
+      fields.className = "conn-fields";
+      for (const field of p.fields || []) {
+        const label = document.createElement("label");
+        label.textContent = field;
+        const input = document.createElement("input");
+        input.type = "password";
+        input.autocomplete = "off";
+        input.dataset.field = field;
+        input.placeholder = p.status === "connected" ? "(saved — enter to replace)" : "";
+        fields.append(label, input);
+      }
+      const labelIn = document.createElement("input");
+      labelIn.placeholder = "Account label (optional)";
+      labelIn.value = p.account_label || "";
+      fields.appendChild(labelIn);
+      const actions = document.createElement("div");
+      actions.className = "conn-actions";
+      const save = document.createElement("button");
+      save.type = "button";
+      save.className = "btn primary compact";
+      save.textContent = "Save connection";
+      save.addEventListener("click", async () => {
+        const secrets = {};
+        fields.querySelectorAll("input[data-field]").forEach((inp) => {
+          if (inp.value.trim()) secrets[inp.dataset.field] = inp.value.trim();
+        });
+        try {
+          await post(`/api/connections/${encodeURIComponent(id)}`, {
+            secrets,
+            account_label: labelIn.value.trim(),
+          });
+          toast(`${p.label} connected for your account`);
+          loadAccountData().catch(() => {});
+        } catch (e) {
+          toast(String(e.message || e));
+        }
+      });
+      const disc = document.createElement("button");
+      disc.type = "button";
+      disc.className = "btn ghost compact";
+      disc.textContent = "Disconnect";
+      disc.disabled = p.status !== "connected";
+      disc.addEventListener("click", async () => {
+        try {
+          await post(`/api/connections/${encodeURIComponent(id)}`, { action: "disconnect" });
+          toast(`${p.label} disconnected`);
+          loadAccountData().catch(() => {});
+        } catch (e) {
+          toast(String(e.message || e));
+        }
+      });
+      actions.append(save, disc);
+      card.append(head, hint, fields, actions);
+      list.appendChild(card);
+    }
+  }
+
+  function renderAccountProjects(projects) {
+    const wrap = document.getElementById("accountProjects");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    if (!projects.length) {
+      wrap.textContent = "No projects yet.";
+      return;
+    }
+    for (const p of projects) {
+      wrap.appendChild(projectCard(p, true));
+    }
+  }
+
+  function renderMineProjects(projects) {
+    const wrap = document.getElementById("mineProjectsList");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    if (!projects.length) {
+      wrap.textContent = "No account projects yet. Create one under Account → Projects.";
+      return;
+    }
+    for (const p of projects) wrap.appendChild(projectCard(p, false));
+  }
+
+  function projectCard(p, withShare) {
+    const card = document.createElement("article");
+    card.className = "proj-card";
+    const head = document.createElement("div");
+    head.className = "proj-head";
+    head.innerHTML = `<strong>${p.name}</strong><span class="conn-status">${p.my_role || ""}</span>`;
+    const meta = document.createElement("p");
+    meta.className = "section-note";
+    const names = (p.members || []).map((m) => m.display_name || m.email).join(", ");
+    meta.textContent = `${p.description || "No description"} · Shared with: ${names || "you"}`;
+    card.append(head, meta);
+    if (withShare && p.my_role === "owner") {
+      const actions = document.createElement("div");
+      actions.className = "proj-actions";
+      const sel = document.createElement("select");
+      for (const u of coworkers) {
+        const opt = document.createElement("option");
+        opt.value = u.email;
+        opt.textContent = `${u.display_name || u.email}`;
+        sel.appendChild(opt);
+      }
+      const share = document.createElement("button");
+      share.type = "button";
+      share.className = "btn compact";
+      share.textContent = "Share";
+      share.addEventListener("click", async () => {
+        if (!sel.value) return;
+        try {
+          await post(`/api/account/projects/${encodeURIComponent(p.id)}/share`, {
+            email: sel.value,
+            role: "editor",
+          });
+          toast(`Shared with ${sel.value}`);
+          loadAccountData().catch(() => {});
+        } catch (e) {
+          toast(String(e.message || e));
+        }
+      });
+      actions.append(sel, share);
+      card.appendChild(actions);
+    }
+    return card;
+  }
+
+  function updateMsgBadge(n) {
+    const badge = document.getElementById("msgBadge");
+    if (!badge) return;
+    if (n > 0) {
+      badge.hidden = false;
+      badge.textContent = String(n);
+    } else {
+      badge.hidden = true;
+    }
+  }
+
+  function renderDmStart(users) {
+    const sel = document.getElementById("dmCoworker");
+    if (!sel) return;
+    sel.innerHTML = "";
+    for (const u of users) {
+      const opt = document.createElement("option");
+      opt.value = u.email;
+      opt.textContent = u.display_name || u.email;
+      sel.appendChild(opt);
+    }
+  }
+
+  function renderDmThreads(data) {
+    const wrap = document.getElementById("dmThreads");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    for (const t of data.threads || []) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "dm-thread-btn" + (t.thread_id === dmThreadId ? " is-active" : "");
+      btn.textContent = `${t.with_name}${t.unread ? ` (${t.unread})` : ""}`;
+      btn.addEventListener("click", () => openDmThread(t.thread_id, t.with_name));
+      wrap.appendChild(btn);
+    }
+  }
+
+  async function openDmThread(threadId, withName) {
+    dmThreadId = threadId;
+    document.getElementById("dmWith").textContent = withName || "Conversation";
+    document.getElementById("dmForm").hidden = false;
+    const data = await get(`/api/messages/threads/${encodeURIComponent(threadId)}`);
+    const log = document.getElementById("dmLog");
+    log.textContent = (data.messages || [])
+      .map((m) => `${m.from === currentUser ? "You" : m.from}: ${m.body}`)
+      .join("\n\n");
+    await post(`/api/messages/threads/${encodeURIComponent(threadId)}/read`, {});
+    const threads = await get("/api/messages/threads");
+    renderDmThreads(threads);
+    updateMsgBadge(threads.unread_total || 0);
+  }
+
+  document.querySelectorAll(".account-tab").forEach((btn) => {
+    btn.addEventListener("click", () => switchAccountTab(btn.dataset.tab));
+  });
+
+  document.querySelectorAll(".view-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".view-tab").forEach((b) => b.classList.toggle("is-active", b === btn));
+      const mine = btn.dataset.view === "mine";
+      document.getElementById("notionSummary").hidden = mine;
+      document.getElementById("notionKanban").hidden = mine;
+      document.getElementById("boardTabs").hidden = mine;
+      document.getElementById("statusFilter").hidden = mine;
+      document.getElementById("mineProjects").hidden = !mine;
+      if (mine) {
+        get("/api/account/projects").then((d) => renderMineProjects(d.projects || [])).catch((e) => toast(String(e.message || e)));
+      }
+    });
+  });
+
+  const profSave = document.getElementById("profSave");
+  if (profSave) {
+    profSave.addEventListener("click", async () => {
+      try {
+        await post("/api/me", {
+          first_name: document.getElementById("profFirst").value,
+          last_name: document.getElementById("profLast").value,
+          employee_number: document.getElementById("profEmp").value,
+        });
+        toast("Profile saved");
+      } catch (e) {
+        toast(String(e.message || e));
+      }
+    });
+  }
+
+  const newProjectForm = document.getElementById("newProjectForm");
+  if (newProjectForm) {
+    newProjectForm.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      try {
+        await post("/api/account/projects", {
+          name: document.getElementById("newProjectName").value,
+        });
+        document.getElementById("newProjectName").value = "";
+        toast("Project created");
+        loadAccountData().catch(() => {});
+      } catch (e) {
+        toast(String(e.message || e));
+      }
+    });
+  }
+
+  const dmStartForm = document.getElementById("dmStartForm");
+  if (dmStartForm) {
+    dmStartForm.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const to = document.getElementById("dmCoworker").value;
+      if (!to) return;
+      // Create thread by sending an empty opener if none — require a first message via form.
+      document.getElementById("dmForm").hidden = false;
+      document.getElementById("dmWith").textContent = to;
+      dmThreadId = null;
+      window.__dmPendingTo = to;
+      document.getElementById("dmLog").textContent = "(new conversation — send the first message)";
+    });
+  }
+
+  const dmForm = document.getElementById("dmForm");
+  if (dmForm) {
+    dmForm.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const body = document.getElementById("dmInput").value.trim();
+      if (!body) return;
+      try {
+        let to = window.__dmPendingTo;
+        if (dmThreadId) {
+          const parts = dmThreadId.split(":");
+          to = parts[1] === currentUser ? parts[2] : parts[1];
+        }
+        const data = await post("/api/messages", { to, body });
+        document.getElementById("dmInput").value = "";
+        window.__dmPendingTo = null;
+        await openDmThread(data.message.thread_id, to);
+        loadAccountData().catch(() => {});
+      } catch (e) {
+        toast(String(e.message || e));
+      }
+    });
+  }
+
   get("/api/auth")
     .then((auth) => {
+      currentUser = auth.user || (auth.profile && auth.profile.email) || null;
       const btn = document.getElementById("logoutBtn");
+      const accountBtn = document.getElementById("accountBtn");
+      const messagesBtn = document.getElementById("messagesBtn");
       if (btn && auth.private_mode) {
         btn.hidden = false;
         btn.addEventListener("click", async () => {
@@ -488,6 +824,19 @@
           location.href = "/login";
         });
       }
+      if (accountBtn && (auth.authed || !auth.private_mode)) {
+        accountBtn.hidden = false;
+        accountBtn.addEventListener("click", () => openAccount("profile"));
+      }
+      if (messagesBtn && (auth.authed || !auth.private_mode)) {
+        messagesBtn.hidden = false;
+        messagesBtn.addEventListener("click", () => openAccount("messages"));
+      }
+      if (auth.profile && !auth.profile.profile_complete && auth.authed) {
+        openAccount("profile");
+        toast("Add your name and employee number to finish setup");
+      }
+      get("/api/messages/threads").then((t) => updateMsgBadge(t.unread_total || 0)).catch(() => {});
     })
     .catch(() => {});
 })();
