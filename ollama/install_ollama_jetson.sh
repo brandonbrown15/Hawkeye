@@ -23,17 +23,25 @@ mkdir -p "$HOME/.config/systemd/user" /etc/systemd/system 2>/dev/null || true
 # Prefer a drop-in if ollama.service exists system-wide
 if systemctl list-unit-files 2>/dev/null | grep -q '^ollama\.service'; then
   sudo mkdir -p /etc/systemd/system/ollama.service.d
-  sudo tee /etc/systemd/system/ollama.service.d/autocode.conf >/dev/null <<EOF
+  DROP_IN=$(cat <<EOF
 [Service]
 Environment="OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE}"
 Environment="OLLAMA_HOST=127.0.0.1:11434"
 Environment="OLLAMA_CONTEXT_LENGTH=${OLLAMA_NUM_CTX}"
 EOF
+)
+  if [[ -n "${OLLAMA_MODELS:-}" ]]; then
+    DROP_IN+=$'\n'"Environment=\"OLLAMA_MODELS=${OLLAMA_MODELS}\""
+  fi
+  printf '%s\n' "$DROP_IN" | sudo tee /etc/systemd/system/ollama.service.d/autocode.conf >/dev/null
   sudo systemctl daemon-reload
-  sudo systemctl enable --now ollama
-else
-  echo "Start Ollama manually: OLLAMA_KEEP_ALIVE=${OLLAMA_KEEP_ALIVE} OLLAMA_HOST=127.0.0.1:11434 ollama serve"
+  sudo systemctl enable --now ollama || true
 fi
+
+# Wait until the API answers (systemd or background serve).
+bash "$ROOT/ollama/ensure_ollama.sh" || {
+  echo "WARN: Ollama API not up yet. Later: ./ollama/ensure_ollama.sh"
+}
 
 echo "Smoke: curl http://127.0.0.1:11434/api/tags"
 curl -fsS "http://127.0.0.1:11434/api/tags" | head -c 400 || true

@@ -52,11 +52,19 @@ pick_data_root() {
     return
   fi
 
-  # Fallback: root disk (still works; just not ideal)
+  # Prefer a writable home path over /opt (non-root Jetson clones to ~/Hawkeye).
+  if [[ -w "$HOME" ]] || mkdir -p "$HOME/autocode-data" 2>/dev/null; then
+    echo "$HOME/autocode-data"
+    return
+  fi
+
+  # Last resort for root / dedicated hosts
   echo "/opt/autocode-data"
 }
 
 DATA_ROOT="$(pick_data_root)"
+# Expand leading ~ if someone set AUTOCODE_DATA_ROOT=~/...
+[[ "$DATA_ROOT" == ~* ]] && DATA_ROOT="${DATA_ROOT/#\~/$HOME}"
 echo "DATA_ROOT=$DATA_ROOT"
 
 mkdir -p \
@@ -68,8 +76,23 @@ mkdir -p \
   "$DATA_ROOT/hermes" \
   "$DATA_ROOT/state" \
   "$DATA_ROOT/hawkeye/memory" || {
-  echo "Need write access to $DATA_ROOT (try: sudo mkdir -p $DATA_ROOT && sudo chown \"\$USER\": \"\$DATA_ROOT\")"
-  exit 1
+  # Non-root + /opt failure → fall back to home once.
+  if [[ "$DATA_ROOT" == /opt/* ]]; then
+    echo "WARN: cannot write $DATA_ROOT — falling back to $HOME/autocode-data"
+    DATA_ROOT="$HOME/autocode-data"
+    mkdir -p \
+      "$DATA_ROOT/workspaces" \
+      "$DATA_ROOT/ollama" \
+      "$DATA_ROOT/models" \
+      "$DATA_ROOT/swap" \
+      "$DATA_ROOT/logs" \
+      "$DATA_ROOT/hermes" \
+      "$DATA_ROOT/state" \
+      "$DATA_ROOT/hawkeye/memory"
+  else
+    echo "Need write access to $DATA_ROOT (try: sudo mkdir -p $DATA_ROOT && sudo chown \"\$USER\": \"\$DATA_ROOT\")"
+    exit 1
+  fi
 }
 
 free_gb="$(df -BG --output=avail "$DATA_ROOT" 2>/dev/null | tail -1 | tr -dc '0-9' || echo 0)"

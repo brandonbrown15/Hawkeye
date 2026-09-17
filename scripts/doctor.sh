@@ -59,7 +59,7 @@ if curl -fsS --max-time 3 "http://${HOST}/api/tags" >/dev/null 2>&1; then
     bad "model $MODEL missing — run ./ollama/create_coder_64k.sh"
   fi
 else
-  bad "ollama not reachable at http://${HOST}"
+  bad "ollama not reachable at http://${HOST} — run ./ollama/ensure_ollama.sh"
 fi
 
 # Hermes
@@ -80,7 +80,10 @@ else
   bad "gh missing — run ./bootstrap/03_install_gh.sh"
 fi
 
-WS="${WORKSPACE_ROOT:-$HOME/workspaces}"
+WS="$(bash "$ROOT/scripts/resolve_workspace_root.sh" 2>/dev/null || echo "${WORKSPACE_ROOT:-$HOME/workspaces}")"
+if [[ -n "${WORKSPACE_ROOT:-}" && "$WORKSPACE_ROOT" == /opt/* && ! -w "${WORKSPACE_ROOT}" ]]; then
+  warn_msg "WORKSPACE_ROOT=$WORKSPACE_ROOT not writable — will use $WS (run ./scripts/clone_workspaces.sh to persist)"
+fi
 if [[ -n "${WORKSPACE_REPOS:-}" ]]; then
   pass "WORKSPACE_REPOS set"
   missing_ws=0

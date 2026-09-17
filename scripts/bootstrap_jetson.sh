@@ -128,9 +128,13 @@ bash "${ROOT_DIR}/ollama/install_ollama_jetson.sh" || {
 # shellcheck disable=SC1091
 source "${ROOT_DIR}/.env" 2>/dev/null || true
 [[ -n "${OLLAMA_MODELS:-}" ]] && export OLLAMA_MODELS
+# Wait for API before model create (install alone is not enough on slow boots).
+bash "${ROOT_DIR}/ollama/ensure_ollama.sh" || {
+  echo "WARN: Ollama not ready. Later: ./ollama/ensure_ollama.sh && ./ollama/create_coder_64k.sh"
+}
 bash "${ROOT_DIR}/ollama/create_coder_64k.sh" || {
   echo "WARN: model create failed (Ollama may still be starting). Retry later:"
-  echo "  bash ollama/create_coder_64k.sh"
+  echo "  ./ollama/ensure_ollama.sh && ./ollama/create_coder_64k.sh"
 }
 
 step "7/13 Hermes install"
@@ -140,10 +144,12 @@ step "8/13 Hermes local-primary config"
 bash "${ROOT_DIR}/hermes/configure_local_primary.sh"
 
 step "9/13 Hermes smoke"
+bash "${ROOT_DIR}/ollama/ensure_ollama.sh" || true
 if bash "${ROOT_DIR}/scripts/smoke_hermes.sh"; then
   echo "Hermes smoke OK."
 else
   echo "WARN: Hermes smoke failed. Fix before a live night."
+  echo "  ./ollama/ensure_ollama.sh && ./scripts/smoke_hermes.sh"
 fi
 
 step "10/13 GitHub CLI"
@@ -192,13 +198,15 @@ Remaining operator steps:
   Prefer one-shot:  ./scripts/go_live.sh --local-only --first-night --enable-autopilot
 
   Or manually:
-  1. Edit .env — Notion token + NOTION_HUB_PAGE (or DB ids), webhook URLs
-  2. ./scripts/auth_github.sh   # or: gh auth login
-  3. sudo SWAPFILE=... ./bootstrap/01_setup_swap.sh 16   # if swap not rooted yet
-  4. sudo tailscale up          # if installed
-  5. ./scripts/demo_night.sh
-  6. ./cron/overnight_run.sh --force
-  7. AUTOCODE_AUTOPILOT_ENABLED=1 + ./cron/install_autopilot_timers.sh
+  1. ./ollama/ensure_ollama.sh && ./ollama/create_coder_64k.sh   # if doctor FAIL ollama
+  2. Edit .env — Notion token + NOTION_HUB_PAGE (or DB ids), webhook URLs
+  3. ./scripts/auth_github.sh   # or: gh auth login / GITHUB_TOKEN in .env
+  4. ./bootstrap/05_use_data_ssd.sh   # parks models on SSD or ~/autocode-data
+  5. sudo SWAPFILE=... ./bootstrap/01_setup_swap.sh 16   # if swap not rooted yet
+  6. sudo tailscale up          # if installed
+  7. ./scripts/demo_night.sh
+  8. ./cron/overnight_run.sh --force
+  9. AUTOCODE_AUTOPILOT_ENABLED=1 + ./cron/install_autopilot_timers.sh
 
 Hawkeye UI should already start on reboot via hawkeye-ui.service
 (./scripts/install_hawkeye_autostart.sh). After Cloudflare tunnel setup,

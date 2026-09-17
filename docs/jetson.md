@@ -25,6 +25,25 @@ export AUTOCODE_DATA_ROOT=/mnt/nvme/autocode   # optional override
 
 See [go-live.md](go-live.md).
 
+## After bootstrap — fix common FAILs
+
+```bash
+# Ollama not reachable (Hermes smoke / doctor FAIL)
+./ollama/ensure_ollama.sh
+./ollama/create_coder_64k.sh
+
+# /opt/workspaces Permission denied (non-root ~/Hawkeye install)
+./bootstrap/05_use_data_ssd.sh    # uses NVMe or ~/autocode-data — never requires /opt
+./scripts/clone_workspaces.sh     # rewrites WORKSPACE_ROOT to a writable path
+
+# gh not logged in
+./scripts/auth_github.sh          # or: gh auth login / set GITHUB_TOKEN in .env
+
+./scripts/doctor.sh
+```
+
+Non-root installs no longer need write access to `/opt`. Empty `WORKSPACE_ROOT` in `.env.example` falls back to `~/workspaces` or `$AUTOCODE_DATA_ROOT/workspaces`.
+
 ## Phase 0 checklist
 
 - [ ] Boots from NVMe **or** root on eMMC + 4TB data SSD mounted (e.g. `/mnt/nvme`)
