@@ -94,7 +94,7 @@ def gh_authed() -> bool:
         return False
 
 
-def readiness() -> dict[str, Any]:
+def readiness(*, user: str | None = None) -> dict[str, Any]:
     hermes_ok = False
     ollama_ok = False
     model = os.environ.get("OLLAMA_MODEL", "coder-64k")
@@ -109,8 +109,9 @@ def readiness() -> dict[str, Any]:
 
     cursor_cmd = os.environ.get("AUTOCODE_CURSOR_DELEGATE_CMD", "")
     grok_cmd = os.environ.get("AUTOCODE_GROK_DELEGATE_CMD", "")
-    # UI toggle (runtime file) wins; otherwise keep readiness default LOCAL_ONLY=1.
-    if runtime.has_local_only_override():
+    # Autopilot/cloud readiness uses global LOCAL_ONLY (not per-user chat toggle).
+    runtime_data = runtime.load()
+    if "local_only" in runtime_data:
         local_only = runtime.autopilot_local_only()
     else:
         local_only = env_truthy("AUTOCODE_LOCAL_ONLY", "1")
@@ -195,7 +196,8 @@ def readiness() -> dict[str, Any]:
     return {
         "ready": all(c["ok"] for c in checks if not c.get("optional")),
         "local_only": local_only,
-        "personal_local_only": ui_auth.personal_local_only(),
+        "personal_local_only": ui_auth.personal_local_only(user),
+        "settings_user": runtime.normalize_user(user),
         "private_mode": ui_auth.private_mode_enabled(),
         "product": ui_auth.product_name(),
         "public_host": ui_auth.public_host(),
@@ -609,11 +611,16 @@ def _persist_memory(
         return None
 
 
-def handle_chat(message: str, seed_notion: bool = True) -> dict[str, Any]:
+def handle_chat(
+    message: str,
+    seed_notion: bool = True,
+    *,
+    user: str | None = None,
+) -> dict[str, Any]:
     message = (message or "").strip()
     if not message:
         return {"ok": False, "error": "message required"}
-    stay_local = ui_auth.personal_local_only()
+    stay_local = ui_auth.personal_local_only(user)
     name = ui_auth.product_name()
     memory_prompt, memory_hits = _memory_context(message)
     research_prompt, research_payload = _research_context(message)
@@ -895,6 +902,16 @@ class Handler(BaseHTTPRequestHandler):
         tok = hdr or (data or {}).get("token") or ""
         return secrets.compare_digest(str(tok), TOKEN)
 
+    def _current_user(self) -> str | None:
+        """Signed-in email, or open-mode synthetic user for per-account settings."""
+        token = self._session_token()
+        user = ui_auth.session_user(token)
+        if user:
+            return user
+        if not ui_auth.private_mode_enabled():
+            return runtime.OPEN_USER
+        return None
+
     def _session_token(self) -> str | None:
         return ui_auth.parse_session_cookie(self.headers.get("Cookie"))
 
@@ -959,12 +976,16 @@ class Handler(BaseHTTPRequestHandler):
             )
             return self._static(name, ctype)
         if path == "/api/auth":
+            user = self._current_user() if self._authed() or not ui_auth.private_mode_enabled() else None
             return self._send(
                 *json_response(
                     {
                         "private_mode": ui_auth.private_mode_enabled(),
                         "credentials_ready": ui_auth.credentials_ready(),
-                        "personal_local_only": ui_auth.personal_local_only(),
+                        "personal_local_only": ui_auth.personal_local_only(user),
+                        "user": user if user and user != runtime.OPEN_USER else (
+                            ui_auth.session_user(self._session_token())
+                        ),
                         "product": ui_auth.product_name(),
                         "public_host": ui_auth.public_host(),
                         "allowed_email_domain": ui_auth.allowed_email_domain(),
@@ -981,9 +1002,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/status":
             return self._send(*json_response(snapshot()))
         if path == "/api/ready":
-            return self._send(*json_response(readiness()))
+            return self._send(*json_response(readiness(user=self._current_user())))
         if path == "/api/settings":
-            return self._send(*json_response({"ok": True, **runtime.effective()}))
+            return self._send(
+                *json_response({"ok": True, **runtime.effective(self._current_user())})
+            )
         if path == "/api/logs":
             return self._send(*json_response(latest_log_tail()))
         if path == "/api/demo":
@@ -1091,12 +1114,20 @@ class Handler(BaseHTTPRequestHandler):
                         400,
                     )
                 )
+            user = self._current_user()
+            if not user:
+                return self._send(
+                    *json_response({"ok": False, "error": "login required for settings"}, 401)
+                )
             raw = data.get("personal_local_only", data.get("local_only"))
             if isinstance(raw, str):
                 enabled = raw.lower() in ("1", "true", "yes", "on")
             else:
                 enabled = bool(raw)
-            out = runtime.set_personal_local_only(enabled)
+            try:
+                out = runtime.set_personal_local_only(enabled, user=user)
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
             return self._send(*json_response({"ok": True, **out}))
         if path == "/api/demo":
             return self._send(*json_response(start_demo()))
@@ -1111,6 +1142,7 @@ class Handler(BaseHTTPRequestHandler):
                         str(data.get("message") or ""),
                         seed_notion=str(data.get("seed_notion", "1")).lower()
                         not in ("0", "false", "no"),
+                        user=self._current_user(),
                     )
                 )
             )

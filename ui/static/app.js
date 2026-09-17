@@ -122,28 +122,31 @@
     ].filter(Boolean);
     const readyMeta = document.getElementById("readyMeta");
     if (readyMeta) readyMeta.textContent = bits.join(" · ");
-    syncLocalOnlyToggle(!!data.personal_local_only);
+    syncLocalOnlyToggle(!!data.personal_local_only, data.settings_user);
   }
 
-  function syncLocalOnlyToggle(on) {
+  function syncLocalOnlyToggle(on, user) {
     const toggle = document.getElementById("localOnlyToggle");
     const wrap = toggle && toggle.closest(".local-only-switch");
     const hint = document.getElementById("localOnlyHint");
     const note = document.getElementById("chatNote");
     if (toggle) toggle.checked = !!on;
     if (wrap) wrap.classList.toggle("is-on", !!on);
-    if (hint) hint.textContent = on ? "no Cursor/Grok" : "free Ollama + escalate";
+    const who = user && user.includes("@") ? user.split("@")[0] : "your account";
+    if (hint) {
+      hint.textContent = on ? `${who}: no Cursor/Grok` : `${who}: escalate ok`;
+    }
     if (note) {
       note.textContent = on
-        ? "Ask Hawkeye to plan, research, or queue work. Local only is on — replies stay on the free Jetson model."
-        : "Ask Hawkeye to plan, research, or queue work. Useful items can seed the Notion board. Use Local only in the header to keep every reply on the free Jetson model.";
+        ? `Ask Hawkeye to plan, research, or queue work. Local only is on for ${who} — replies stay on the free Jetson model.`
+        : "Ask Hawkeye to plan, research, or queue work. Useful items can seed the Notion board. Local only is per signed-in account.";
     }
   }
 
   async function loadLocalOnlySetting() {
     try {
       const data = await get("/api/settings");
-      syncLocalOnlyToggle(!!data.personal_local_only);
+      syncLocalOnlyToggle(!!data.personal_local_only, data.user);
     } catch (_) {
       /* optional on first paint */
     }
@@ -505,11 +508,11 @@
       localOnlyToggle.disabled = true;
       try {
         const data = await post("/api/settings", { personal_local_only: enabled });
-        syncLocalOnlyToggle(!!data.personal_local_only);
+        syncLocalOnlyToggle(!!data.personal_local_only, data.user);
         toast(
           data.personal_local_only
-            ? "Local only on — free Jetson model only"
-            : "Local only off — Cursor/Grok escalate allowed"
+            ? `Local only on for ${data.user || "you"} — free Jetson model only`
+            : `Local only off for ${data.user || "you"} — Cursor/Grok escalate allowed`
         );
         refreshOps().catch(() => {});
       } catch (e) {
@@ -524,7 +527,7 @@
   get("/api/auth")
     .then((auth) => {
       if (typeof auth.personal_local_only === "boolean") {
-        syncLocalOnlyToggle(auth.personal_local_only);
+        syncLocalOnlyToggle(auth.personal_local_only, auth.user);
       }
       const btn = document.getElementById("logoutBtn");
       if (btn && auth.private_mode) {

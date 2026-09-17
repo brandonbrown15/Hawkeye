@@ -106,6 +106,6 @@ The dashboard chat box talks to the **local** Ollama model first (free all day o
 
 Set `CURSOR_WEBHOOK_URL` and `GROK_BOT_WEBHOOK_URL` for premium handoff. Optional API keys: `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, or `XAI_API_KEY`.
 
-Use the **Local only** switch in the dashboard header to force free Jetson Ollama for chat (no Cursor/Grok). That setting persists in `state/hawkeye-runtime.json` and overrides `AUTOCODE_PERSONAL_LOCAL_ONLY` until you flip it back.
+Use the **Local only** switch in the dashboard header to force free Jetson Ollama for chat (no Cursor/Grok). The setting is **per signed-in account** (stored under that email in `state/hawkeye-runtime.json`), so `brandon@` and `mark@` can choose independently. It overrides `AUTOCODE_PERSONAL_LOCAL_ONLY` for that user until they flip it back.
 
 Private personal product: **[hawkeye.md](hawkeye.md)**.

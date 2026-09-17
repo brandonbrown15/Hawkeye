@@ -51,14 +51,15 @@ def private_mode_enabled() -> bool:
     return os.environ.get("AUTOCODE_PRIVATE_MODE", "0").lower() in ("1", "true", "yes", "on")
 
 
-def personal_local_only() -> bool:
-    """Opt-in: block all cloud escalate. UI toggle overrides .env when set.
+def personal_local_only(user: str | None = None) -> bool:
+    """Opt-in: block cloud escalate for this signed-in account.
 
     Default off — local-first with Cursor/Grok escalate for hard asks.
+    Each @brownhawke.engineering user has their own UI toggle.
     """
     from ui import runtime_settings
 
-    return runtime_settings.personal_local_only()
+    return runtime_settings.personal_local_only(user)
 
 
 def _pbkdf2(password: str, salt: str) -> str:
