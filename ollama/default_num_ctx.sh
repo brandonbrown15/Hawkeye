@@ -17,7 +17,6 @@ fi
 if [[ -z "${OLLAMA_ALLOW_HIGH_CTX:-}" ]] \
   && { [[ -f /etc/nv_tegra_release ]] || [[ "$(uname -m)" == "aarch64" ]]; } \
   && [[ "$CTX" -gt 32768 ]]; then
-  echo "16384" >&2
   echo "note: capped OLLAMA_NUM_CTX=$CTX → 16384 on Jetson (export OLLAMA_ALLOW_HIGH_CTX=1 to keep)" >&2
   CTX=16384
 fi
