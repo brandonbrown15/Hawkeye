@@ -31,6 +31,14 @@
         <span class="pulse" aria-hidden="true"></span>
         <span id="phaseLabel">idle</span>
       </div>
+      <label class="local-only-switch" title="When on, Hawkeye never calls Cursor/Grok — free local model only">
+        <input type="checkbox" id="localOnlyToggle" />
+        <span class="switch-track" aria-hidden="true"></span>
+        <span class="switch-copy">
+          <span class="switch-title">Local only</span>
+          <span class="switch-hint" id="localOnlyHint">free Ollama</span>
+        </span>
+      </label>
       <button type="button" class="btn ghost compact" id="logoutBtn" hidden>Sign out</button>
     </div>
   </header>
@@ -86,7 +94,7 @@
 
     <section class="chat" aria-labelledby="chatHeading">
       <h2 id="chatHeading">Talk to Hawkeye</h2>
-      <p class="section-note" id="chatNote">Ask Hawkeye to plan, research, or queue work. Useful items can seed the Notion board.</p>
+      <p class="section-note" id="chatNote">Ask Hawkeye to plan, research, or queue work. Useful items can seed the Notion board. Use Local only in the header to keep every reply on the free Jetson model.</p>
       <div id="chatLog" class="chat-log" role="log" aria-live="polite"></div>
       <form class="chat-form" id="chatForm">
         <label for="chatInput" class="sr-only">Message</label>

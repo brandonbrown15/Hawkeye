@@ -167,7 +167,8 @@ HAWKEYE_USERS_FILE=config/users.json
 AUTOCODE_PUBLIC_HOST=hawkeye.brownhawke.engineering
 AUTOCODE_UI_SECURE=1
 
-# Escalate hard asks (recommended)
+# Escalate hard asks (recommended). Flip "Local only" in the UI header anytime
+# to force free Jetson Ollama only (persists in state/hawkeye-runtime.json).
 AUTOCODE_PERSONAL_LOCAL_ONLY=0
 CURSOR_WEBHOOK_URL=https://…
 GROK_BOT_WEBHOOK_URL=https://…

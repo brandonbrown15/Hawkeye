@@ -29,6 +29,7 @@ sys.path.insert(0, str(ROOT))
 from orchestrator import health as health_mod  # noqa: E402
 from orchestrator import ops  # noqa: E402
 from ui import auth as ui_auth  # noqa: E402
+from ui import runtime_settings as runtime  # noqa: E402
 
 STATIC = Path(__file__).resolve().parent / "static"
 STATE = ROOT / "state"
@@ -108,7 +109,11 @@ def readiness() -> dict[str, Any]:
 
     cursor_cmd = os.environ.get("AUTOCODE_CURSOR_DELEGATE_CMD", "")
     grok_cmd = os.environ.get("AUTOCODE_GROK_DELEGATE_CMD", "")
-    local_only = env_truthy("AUTOCODE_LOCAL_ONLY", "1")
+    # UI toggle (runtime file) wins; otherwise keep readiness default LOCAL_ONLY=1.
+    if runtime.has_local_only_override():
+        local_only = runtime.autopilot_local_only()
+    else:
+        local_only = env_truthy("AUTOCODE_LOCAL_ONLY", "1")
 
     checks = [
         {"id": "env", "label": ".env present", "ok": (ROOT / ".env").exists(), "hint": "Run ./start"},
@@ -977,6 +982,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(*json_response(snapshot()))
         if path == "/api/ready":
             return self._send(*json_response(readiness()))
+        if path == "/api/settings":
+            return self._send(*json_response({"ok": True, **runtime.effective()}))
         if path == "/api/logs":
             return self._send(*json_response(latest_log_tail()))
         if path == "/api/demo":
@@ -1076,6 +1083,21 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 )
             )
+        if path == "/api/settings":
+            if "personal_local_only" not in data and "local_only" not in data:
+                return self._send(
+                    *json_response(
+                        {"ok": False, "error": "pass personal_local_only (bool)"},
+                        400,
+                    )
+                )
+            raw = data.get("personal_local_only", data.get("local_only"))
+            if isinstance(raw, str):
+                enabled = raw.lower() in ("1", "true", "yes", "on")
+            else:
+                enabled = bool(raw)
+            out = runtime.set_personal_local_only(enabled)
+            return self._send(*json_response({"ok": True, **out}))
         if path == "/api/demo":
             return self._send(*json_response(start_demo()))
         if path == "/api/work":
