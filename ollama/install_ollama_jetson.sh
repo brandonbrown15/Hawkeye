@@ -16,7 +16,8 @@ fi
 
 # Keep model warm for overnight runs
 OLLAMA_KEEP_ALIVE="${OLLAMA_KEEP_ALIVE:-24h}"
-OLLAMA_NUM_CTX="${OLLAMA_NUM_CTX:-65536}"
+OLLAMA_NUM_CTX="$(bash "$ROOT/ollama/default_num_ctx.sh")"
+export OLLAMA_NUM_CTX
 
 mkdir -p "$HOME/.config/systemd/user" /etc/systemd/system 2>/dev/null || true
 

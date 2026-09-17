@@ -35,6 +35,16 @@ class ResolveWorkspaceRootTests(unittest.TestCase):
         self.assertIn("api/tags", text)
         self.assertIn("--restart", text)
 
+    def test_default_num_ctx_script(self) -> None:
+        script = ROOT / "ollama" / "default_num_ctx.sh"
+        self.assertTrue(script.is_file())
+        out = subprocess.check_output(
+            ["bash", str(script)],
+            env={**os.environ, "OLLAMA_NUM_CTX": "8192"},
+            text=True,
+        ).strip()
+        self.assertEqual(out, "8192")
+
 
 if __name__ == "__main__":
     unittest.main()

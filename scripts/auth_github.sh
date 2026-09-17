@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Non-interactive GitHub auth when GITHUB_TOKEN (or GH_TOKEN) is set.
-# Falls back to reporting interactive gh auth login if no token.
+# Falls back to clear PAT instructions (GitHub rejects account passwords).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -21,13 +21,33 @@ if gh auth status >/dev/null 2>&1; then
 fi
 
 TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
-if [[ -z "$TOKEN" ]]; then
-  echo "No GITHUB_TOKEN/GH_TOKEN in env."
-  echo "Either export a fine-scoped PAT, or run interactively: gh auth login"
-  exit 1
+if [[ -n "$TOKEN" ]]; then
+  echo "$TOKEN" | gh auth login --with-token
+  gh auth setup-git >/dev/null 2>&1 || true
+  gh auth status
+  echo "OK: gh authenticated via token"
+  exit 0
 fi
 
-echo "$TOKEN" | gh auth login --with-token
-gh auth setup-git >/dev/null 2>&1 || true
-gh auth status
-echo "OK: gh authenticated via token"
+cat <<'EOF'
+No GITHUB_TOKEN/GH_TOKEN in .env.
+
+GitHub no longer accepts your account password for git/gh.
+Use a Personal Access Token (PAT):
+
+  1. https://github.com/settings/tokens
+     Classic: repo scope  — or —  Fine-grained: Contents/Metadata read on brandonbrown15/Hawkeye
+  2. On the Jetson, either:
+
+       # A) put it in .env (recommended for this box)
+       echo 'GITHUB_TOKEN=ghp_your_token_here' >> ~/Hawkeye/.env
+       ./scripts/auth_github.sh
+
+       # B) interactive browser/device flow
+       gh auth login -h github.com -p https -w
+
+       # C) paste PAT when git asks for Password
+       git pull   # Username: brandonbrown15  Password: <PAT not your login password>
+
+EOF
+exit 1
