@@ -47,6 +47,7 @@ _PUBLIC_GET = {
 }
 _PUBLIC_POST = {
     "/api/login",
+    "/api/webhooks/resend",
 }
 
 _demo_lock = threading.Lock()
@@ -164,9 +165,20 @@ def readiness() -> dict[str, Any]:
         },
         {
             "id": "research",
-            "label": "Web research",
+            "label": "Web research (deep page read)",
             "ok": env_truthy("HAWKEYE_RESEARCH_ENABLED", "1"),
-            "hint": "Optional BRAVE_SEARCH_API_KEY; else DuckDuckGo HTML",
+            "hint": "HAWKEYE_RESEARCH_DEEP=1 fetches result pages; optional BRAVE_SEARCH_API_KEY",
+            "optional": True,
+        },
+        {
+            "id": "mail",
+            "label": "Email inbox (Resend)",
+            "ok": (not env_truthy("HAWKEYE_MAIL_ENABLED"))
+            or (
+                has_env("RESEND_API_KEY")
+                and (has_env("RESEND_WEBHOOK_SECRET") or env_truthy("HAWKEYE_MAIL_ALLOW_UNSIGNED"))
+            ),
+            "hint": "Set HAWKEYE_MAIL_ENABLED=1 + RESEND_API_KEY + RESEND_WEBHOOK_SECRET",
             "optional": True,
         },
     ]
@@ -557,7 +569,10 @@ def _research_context(message: str) -> tuple[str, dict[str, Any] | None]:
 
         if not wants_research(message):
             return "", None
-        result = research(message, limit=int(os.environ.get("HAWKEYE_RESEARCH_TOP_K", "5") or "5"))
+        result = research(
+            message,
+            limit=int(os.environ.get("HAWKEYE_RESEARCH_TOP_K", "5") or "5"),
+        )
         return result.format_for_prompt(), result.to_dict()
     except Exception as e:  # noqa: BLE001
         print(f"[ui-chat] research failed: {e}")
@@ -668,6 +683,7 @@ def handle_chat(message: str, seed_notion: bool = True) -> dict[str, Any]:
                     title=str(s.get("title") or ""),
                     url=str(s.get("url") or ""),
                     snippet=str(s.get("snippet") or ""),
+                    excerpt=str(s.get("excerpt") or ""),
                 )
                 for s in research_payload["sources"]
                 if isinstance(s, dict)
@@ -875,12 +891,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _read_json(self) -> dict[str, Any]:
+    def _read_raw(self) -> bytes:
         length = int(self.headers.get("Content-Length", "0") or 0)
         if length <= 0:
+            return b""
+        return self.rfile.read(length)
+
+    def _read_json(self) -> dict[str, Any]:
+        raw = self._read_raw()
+        if not raw:
             return {}
         try:
-            data = json.loads(self.rfile.read(length).decode() or "{}")
+            data = json.loads(raw.decode() or "{}")
             return data if isinstance(data, dict) else {}
         except json.JSONDecodeError:
             return {}
@@ -992,6 +1014,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(*json_response({"ok": True, **get_store().stats()}))
             except Exception as e:  # noqa: BLE001
                 return self._send(*json_response({"ok": False, "error": str(e)}, 500))
+        if path == "/api/mail":
+            from urllib.parse import parse_qs
+
+            from mail import list_messages
+
+            qs = parse_qs(urlparse(self.path).query)
+            status = (qs.get("status") or ["all"])[0]
+            limit = int((qs.get("limit") or ["40"])[0] or 40)
+            return self._send(*json_response(list_messages(limit=limit, status=status)))
         if path == "/api/projects" or path == "/api/boards":
             return self._send(*json_response(handle_list_boards()))
         if path == "/api/tasks":
@@ -1013,6 +1044,26 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
+
+        # Resend inbound webhook — raw body required for signature verify.
+        if path == "/api/webhooks/resend":
+            if not env_truthy("HAWKEYE_MAIL_ENABLED"):
+                return self._send(
+                    *json_response({"ok": False, "error": "HAWKEYE_MAIL_ENABLED=0"}, 503)
+                )
+            raw = self._read_raw()
+            headers = {k: v for k, v in self.headers.items()}
+            try:
+                from mail import handle_inbound_payload
+                from mail.webhook import WebhookError
+
+                out = handle_inbound_payload(raw, headers=headers)
+                return self._send(*json_response(out))
+            except WebhookError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
+            except Exception as e:  # noqa: BLE001
+                return self._send(*json_response({"ok": False, "error": str(e)}, 500))
+
         data = self._read_json()
 
         if path == "/api/login":
@@ -1092,6 +1143,45 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 )
             )
+        if path == "/api/mail/inject":
+            # Authenticated helper to drop a sample email into the inbox (no Resend).
+            from mail import handle_inbound_payload
+
+            return self._send(
+                *json_response(
+                    handle_inbound_payload(
+                        json.dumps(
+                            {
+                                "from": data.get("from") or data.get("from_addr"),
+                                "to": data.get("to") or data.get("to_addr"),
+                                "subject": data.get("subject") or "",
+                                "body": data.get("body") or "",
+                            }
+                        ),
+                        skip_verify=True,
+                    )
+                )
+            )
+        if path.startswith("/api/mail/") and path.endswith("/draft"):
+            from mail import draft_reply
+
+            msg_id = path[len("/api/mail/") : -len("/draft")].strip("/")
+            return self._send(*json_response(draft_reply(msg_id)))
+        if path.startswith("/api/mail/") and path.endswith("/send"):
+            from mail import send_reply
+
+            msg_id = path[len("/api/mail/") : -len("/send")].strip("/")
+            draft = data.get("draft")
+            return self._send(
+                *json_response(
+                    send_reply(msg_id, draft=str(draft) if draft is not None else None)
+                )
+            )
+        if path.startswith("/api/mail/") and path.endswith("/ignore"):
+            from mail import ignore_message
+
+            msg_id = path[len("/api/mail/") : -len("/ignore")].strip("/")
+            return self._send(*json_response(ignore_message(msg_id)))
         if path.startswith("/api/tasks/") and (
             self.headers.get("X-HTTP-Method-Override", "").upper() == "PATCH"
             or str(data.get("_method") or "").upper() == "PATCH"
