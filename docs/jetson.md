@@ -34,12 +34,13 @@ See [go-live.md](go-live.md).
 ./bootstrap/05_use_data_ssd.sh
 source .env   # or: export OLLAMA_MODELS=… from .env
 
-# 2) Restart Ollama so it uses OLLAMA_MODELS, then create coder-64k
-#    (Jetson auto-uses num_ctx=16384 — avoids HTTP 500 from 64k KV OOM)
+# 2) Full Ollama install (CLI + llama-server JetPack runner) then create model
+./ollama/install_ollama_jetson.sh
+# If chat still says llama-server not found:
+#   OLLAMA_FORCE_REINSTALL=1 ./ollama/install_ollama_jetson.sh
 ./ollama/ensure_ollama.sh --restart
 ./ollama/create_coder_64k.sh
-# If smoke still 500: OLLAMA_NUM_CTX=8192 ./ollama/create_coder_64k.sh
-# Or smaller weights: BASE_MODEL=qwen2.5-coder:3b ./ollama/create_coder_64k.sh
+# Prove: ollama run coder-64k OK
 
 # 3) Hermes config (writes under HERMES_CONFIG_DIR from .env)
 ./hermes/configure_local_primary.sh
@@ -78,9 +79,13 @@ Non-root installs no longer need write access to `/opt`. Empty `WORKSPACE_ROOT` 
 - Smoke `/api/chat` (tiny `num_ctx` first)
 - Boot auto-start: `./scripts/install_hawkeye_autostart.sh` (UI + Ollama; tunnel when configured)
 
+**Gotcha:** Listing models is not enough — chat needs `/usr/local/lib/ollama/llama-server`. If smoke returns `llama-server binary not found`, re-run `./ollama/install_ollama_jetson.sh` (or the Jetson AI Lab container).
+
 **Gotcha:** 7B + `num_ctx 65536` often returns **HTTP 500** on Orin Nano (KV cache OOM). Use `OLLAMA_NUM_CTX=8192` or `16384`, recreate the model, verify with `ollama run coder-64k OK`.
 
 **Gotcha:** Ollama `/v1` can still fail when native `/api/chat` works. Prefer Modelfile `PARAMETER num_ctx`, `OLLAMA_CONTEXT_LENGTH`, and Hermes `/api/chat`. Verify with `ollama ps`.
+
+**Gotcha:** GitHub rejects account passwords for `git`/`gh` — use a PAT (`./scripts/auth_github.sh`).
 
 ## Phase 2 — Hermes
 

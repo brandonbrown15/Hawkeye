@@ -64,9 +64,21 @@ start_background() {
   [[ -n "${OLLAMA_MODELS:-}" ]] && mkdir -p "$OLLAMA_MODELS"
   export OLLAMA_HOST="$HOST" OLLAMA_KEEP_ALIVE="$KEEP_ALIVE"
   [[ -n "${OLLAMA_MODELS:-}" ]] && export OLLAMA_MODELS
-  nohup ollama serve >>"$ROOT/logs/ollama-serve.log" 2>&1 &
+  # Prefer the system binary that sits next to lib/ollama/llama-server
+  local bin="ollama"
+  [[ -x /usr/local/bin/ollama ]] && bin=/usr/local/bin/ollama
+  [[ -x /usr/bin/ollama ]] && [[ ! -x /usr/local/bin/ollama ]] && bin=/usr/bin/ollama
+  local runner=""
+  runner="$(find /usr/local/lib/ollama /usr/lib/ollama -name llama-server -type f 2>/dev/null | head -1 || true)"
+  if [[ -z "$runner" ]]; then
+    echo "FAIL: llama-server runner missing — run: ./ollama/install_ollama_jetson.sh"
+    echo "      (CLI-only installs list models but every chat returns HTTP 500)"
+    exit 1
+  fi
+  nohup "$bin" serve >>"$ROOT/logs/ollama-serve.log" 2>&1 &
   echo $! >"$ROOT/state/ollama-serve.pid" 2>/dev/null || true
-  echo "Started background: ollama serve (log: logs/ollama-serve.log)"
+  echo "Started background: $bin serve (log: logs/ollama-serve.log)"
+  echo "  runner: $runner"
   [[ -n "${OLLAMA_MODELS:-}" ]] && echo "  OLLAMA_MODELS=$OLLAMA_MODELS"
 }
 

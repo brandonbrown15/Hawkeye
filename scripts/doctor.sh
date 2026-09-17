@@ -51,6 +51,12 @@ fi
 HOST="${OLLAMA_HOST:-127.0.0.1:11434}"
 MODEL="${OLLAMA_MODEL:-coder-64k}"
 if command -v ollama >/dev/null 2>&1; then pass "ollama CLI"; else bad "ollama not installed"; fi
+if [[ -x /usr/local/lib/ollama/llama-server ]] || [[ -x /usr/lib/ollama/llama-server ]] \
+  || find /usr/local/lib/ollama /usr/lib/ollama -name llama-server -type f 2>/dev/null | grep -q .; then
+  pass "ollama llama-server runner present"
+else
+  bad "ollama llama-server runner missing — ./ollama/install_ollama_jetson.sh (CLI-only installs 500 on chat)"
+fi
 if curl -fsS --max-time 3 "http://${HOST}/api/tags" >/dev/null 2>&1; then
   pass "ollama reachable at $HOST"
   tags_json="$(curl -fsS --max-time 5 "http://${HOST}/api/tags" 2>/dev/null || echo '{}')"

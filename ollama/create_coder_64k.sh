@@ -70,9 +70,18 @@ V1_BODY="{\"model\":\"${TARGET_MODEL}\",\"messages\":[{\"role\":\"user\",\"conte
 if smoke_chat "/api/chat (num_ctx=2048)" "/api/chat" "$TINY_BODY" /tmp/coder-64k-smoke-tiny.json; then
   echo "PASS: model loads and answers"
 else
-  echo "FAIL: model listed but inference 500 — check logs/ollama-serve.log (often VRAM / GPU)"
-  echo "  Try: ollama run ${TARGET_MODEL} OK"
-  echo "  Or smaller base: BASE_MODEL=qwen2.5-coder:3b ./ollama/create_coder_64k.sh"
+  echo "FAIL: model listed but inference failed — see body above"
+  if grep -qi 'llama-server binary not found' /tmp/coder-64k-smoke-tiny.json 2>/dev/null; then
+    echo
+    echo "Root cause: Ollama runner missing (llama-server)."
+    echo "  Fix:  ./ollama/install_ollama_jetson.sh"
+    echo "  Or:   OLLAMA_FORCE_REINSTALL=1 ./ollama/install_ollama_jetson.sh"
+    echo "  Then: ./ollama/ensure_ollama.sh --restart && ./ollama/create_coder_64k.sh"
+  else
+    echo "  Check: logs/ollama-serve.log (often VRAM / GPU)"
+    echo "  Try:   ollama run ${TARGET_MODEL} OK"
+    echo "  Or:    BASE_MODEL=qwen2.5-coder:3b OLLAMA_NUM_CTX=8192 ./ollama/create_coder_64k.sh"
+  fi
   exit 1
 fi
 
