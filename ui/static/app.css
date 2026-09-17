@@ -614,6 +614,12 @@ h2 { font-size: 1.2rem; }
   padding: 1rem;
 }
 
+/* .task-drawer { display: grid } otherwise overrides the [hidden] UA rule
+   and leaves a full-screen overlay intercepting Account / Messages clicks. */
+.task-drawer[hidden] {
+  display: none !important;
+}
+
 .drawer-panel {
   width: min(520px, 100%);
   max-height: min(88vh, 720px);
@@ -701,9 +707,182 @@ h2 { font-size: 1.2rem; }
   margin-top: 1.5rem;
 }
 
+.view-tabs {
+  display: flex;
+  gap: 0.35rem;
+  width: 100%;
+  margin-bottom: 0.65rem;
+}
+.view-tab,
+.account-tab {
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,0.7);
+  color: var(--navy);
+  font: inherit;
+  font-size: 0.88rem;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+}
+.view-tab.is-active,
+.account-tab.is-active {
+  background: var(--navy);
+  color: #fff;
+  border-color: var(--navy);
+}
+
+.account-dialog {
+  border: 1px solid var(--line);
+  padding: 0;
+  width: min(920px, 96vw);
+  max-height: 90vh;
+  background: #f7f9fc;
+  color: var(--navy);
+}
+.account-dialog::backdrop {
+  background: rgba(8, 18, 36, 0.45);
+}
+.account-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 1rem 1.15rem 1.25rem;
+}
+.account-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+.account-panel-head h2 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+}
+.account-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.account-pane { display: none; }
+.account-pane.is-active { display: block; }
+.account-pane label {
+  display: block;
+  margin: 0.65rem 0 0.3rem;
+  font-size: 0.9rem;
+}
+.account-pane input,
+.account-pane select,
+.account-pane textarea,
+.inline-form input,
+.inline-form select {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid rgba(15, 36, 72, 0.25);
+  background: #fff;
+  color: var(--navy);
+  font: inherit;
+}
+.inline-form {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+}
+.inline-form input,
+.inline-form select { flex: 1; }
+.connections-list,
+.account-projects {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+.conn-card,
+.proj-card {
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--line);
+}
+.conn-card:first-child,
+.proj-card:first-child { border-top: none; padding-top: 0; }
+.conn-head,
+.proj-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: baseline;
+}
+.conn-status {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  text-transform: lowercase;
+}
+.conn-status.on { color: #1f6b3a; }
+.conn-status.off { color: #5a6a82; }
+.conn-fields {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+.conn-actions,
+.proj-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.55rem;
+}
+.msg-badge {
+  display: inline-block;
+  margin-left: 0.25rem;
+  min-width: 1.1rem;
+  padding: 0 0.3rem;
+  background: var(--navy);
+  color: #fff;
+  font-size: 0.72rem;
+  line-height: 1.2rem;
+  text-align: center;
+}
+.dm-layout {
+  display: grid;
+  grid-template-columns: minmax(140px, 28%) 1fr;
+  gap: 0.85rem;
+  min-height: 280px;
+}
+.dm-threads {
+  border-right: 1px solid var(--line);
+  padding-right: 0.65rem;
+  overflow: auto;
+  max-height: 360px;
+}
+.dm-thread-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  padding: 0.45rem 0.35rem;
+  cursor: pointer;
+  color: var(--navy);
+  font: inherit;
+  font-size: 0.88rem;
+}
+.dm-thread-btn.is-active { background: rgba(15, 36, 72, 0.08); }
+.dm-log {
+  min-height: 180px;
+  max-height: 260px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+  background: rgba(15, 36, 72, 0.03);
+  padding: 0.65rem;
+}
+.dm-form textarea { width: 100%; margin-bottom: 0.45rem; }
+.dm-with { font-weight: 600; margin-bottom: 0.35rem; }
+
 @media (max-width: 720px) {
   .top { flex-direction: column; }
   .header-actions { align-items: flex-start; }
   .kanban-columns { grid-template-columns: 1fr; }
+  .dm-layout { grid-template-columns: 1fr; }
+  .dm-threads { border-right: none; border-bottom: 1px solid var(--line); }
 }
 
