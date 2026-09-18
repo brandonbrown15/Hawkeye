@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT))
 
 from orchestrator import ops  # noqa: E402
 from ui import auth as ui_auth  # noqa: E402
+from ui import runtime_settings as runtime  # noqa: E402
 from ui import server as ui_server  # noqa: E402
 
 
@@ -32,17 +33,21 @@ class UiHelpersTests(unittest.TestCase):
             "AUTOCODE_PRIVATE_USER",
             "AUTOCODE_PRIVATE_PASSWORD_HASH",
             "AUTOCODE_PERSONAL_LOCAL_ONLY",
+            "AUTOCODE_LOCAL_ONLY",
             "AUTOCODE_PRODUCT_NAME",
             "CURSOR_WEBHOOK_URL",
             "GROK_BOT_WEBHOOK_URL",
             "HAWKEYE_USERS_FILE",
             "HAWKEYE_ALLOWED_EMAIL_DOMAIN",
             "HAWKEYE_USERS_JSON",
+            "HAWKEYE_RUNTIME_FILE",
         )}
         for k in self._env:
             os.environ.pop(k, None)
         os.environ["AUTOCODE_PRODUCT_NAME"] = "Hawkeye"
         os.environ["AUTOCODE_PRIVATE_MODE"] = "0"
+        os.environ["HAWKEYE_RUNTIME_FILE"] = str(self.tmp / "hawkeye-runtime.json")
+        runtime.clear_cache()
         ui_auth.clear_sessions()
         ui_auth.clear_users_cache()
         ops.STATUS_PATH = self.tmp / "status.json"
@@ -59,6 +64,7 @@ class UiHelpersTests(unittest.TestCase):
                 os.environ.pop(k, None)
             else:
                 os.environ[k] = v
+        runtime.clear_cache()
         ui_auth.clear_sessions()
         ui_auth.clear_users_cache()
     def test_snapshot_and_control(self) -> None:
@@ -139,6 +145,31 @@ class UiHelpersTests(unittest.TestCase):
                 html = resp.read().decode()
             self.assertIn("Hawkeye", html)
             self.assertIn(token, html)
+            self.assertIn("localOnlyToggle", html)
+            self.assertIn("Local only", html)
+
+            with request.urlopen(f"http://127.0.0.1:{port}/api/settings", timeout=5) as resp:
+                settings = json.loads(resp.read().decode())
+            self.assertTrue(settings["ok"])
+            self.assertFalse(settings["personal_local_only"])
+
+            body = json.dumps({"personal_local_only": True, "token": token}).encode()
+            req = request.Request(
+                f"http://127.0.0.1:{port}/api/settings",
+                data=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Autocode-Token": token,
+                },
+                method="POST",
+            )
+            with request.urlopen(req, timeout=5) as resp:
+                toggled = json.loads(resp.read().decode())
+            self.assertTrue(toggled["ok"])
+            self.assertTrue(toggled["personal_local_only"])
+            self.assertEqual(toggled.get("user"), runtime.OPEN_USER)
+            self.assertTrue(ui_auth.personal_local_only(runtime.OPEN_USER))
+            self.assertFalse(ui_auth.personal_local_only("mark@brownhawke.engineering"))
         finally:
             httpd.shutdown()
             httpd.server_close()
@@ -273,6 +304,49 @@ class UiHelpersTests(unittest.TestCase):
         cloud.assert_not_called()
         self.assertFalse(out["escalated"])
         self.assertTrue(out["local_only"])
+
+    def test_runtime_local_only_toggle_overrides_env(self) -> None:
+        os.environ["AUTOCODE_PERSONAL_LOCAL_ONLY"] = "0"
+        os.environ["CURSOR_WEBHOOK_URL"] = "http://example.invalid/cursor"
+        brandon = "brandon@brownhawke.engineering"
+        mark = "mark@brownhawke.engineering"
+        self.assertFalse(ui_auth.personal_local_only(brandon))
+
+        out = runtime.set_personal_local_only(True, user=brandon)
+        self.assertTrue(out["personal_local_only"])
+        self.assertEqual(out["user"], brandon)
+        self.assertEqual(out["source"], "user")
+        self.assertTrue(ui_auth.personal_local_only(brandon))
+        self.assertFalse(ui_auth.personal_local_only(mark))
+        self.assertTrue((self.tmp / "hawkeye-runtime.json").is_file())
+
+        with mock.patch.object(ui_server, "_ollama_chat", return_value="ESCALATE: nope"):
+            with mock.patch.object(ui_server, "_cloud_chat") as cloud:
+                chat = ui_server.handle_chat("hard thing", seed_notion=False, user=brandon)
+        cloud.assert_not_called()
+        self.assertTrue(chat["local_only"])
+
+        with mock.patch.object(ui_server, "_ollama_chat", return_value="ESCALATE: nope"):
+            with mock.patch.object(ui_server, "_webhook_chat", return_value="premium") as wh:
+                mark_chat = ui_server.handle_chat("hard thing", seed_notion=False, user=mark)
+        wh.assert_called_once()
+        self.assertTrue(mark_chat["escalated"])
+
+        runtime.set_personal_local_only(False, user=brandon)
+        self.assertFalse(ui_auth.personal_local_only(brandon))
+        ready = ui_server.readiness(user=brandon)
+        self.assertFalse(ready["personal_local_only"])
+
+    def test_per_user_local_only_independent(self) -> None:
+        brandon = "brandon@brownhawke.engineering"
+        mark = "mark@brownhawke.engineering"
+        runtime.set_personal_local_only(True, user=brandon)
+        runtime.set_personal_local_only(False, user=mark)
+        self.assertTrue(runtime.personal_local_only(brandon))
+        self.assertFalse(runtime.personal_local_only(mark))
+        runtime.set_personal_local_only(True, user=mark)
+        self.assertTrue(runtime.personal_local_only(brandon))
+        self.assertTrue(runtime.personal_local_only(mark))
 
     def test_chat_uses_memory_and_research(self) -> None:
         mem_root = self.tmp / "mem"

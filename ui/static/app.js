@@ -117,10 +117,39 @@
       data.ready ? "Core stack looks ready" : "Finish the red checklist items",
       `product=${data.product || "Hawkeye"}`,
       data.private_mode ? "login ON" : null,
+      data.personal_local_only ? "local-only ON" : "cloud escalate allowed",
       data.autopilot ? "autopilot ON" : "autopilot off",
     ].filter(Boolean);
     const readyMeta = document.getElementById("readyMeta");
     if (readyMeta) readyMeta.textContent = bits.join(" · ");
+    syncLocalOnlyToggle(!!data.personal_local_only, data.settings_user);
+  }
+
+  function syncLocalOnlyToggle(on, user) {
+    const toggle = document.getElementById("localOnlyToggle");
+    const wrap = toggle && toggle.closest(".local-only-switch");
+    const hint = document.getElementById("localOnlyHint");
+    const note = document.getElementById("chatNote");
+    if (toggle) toggle.checked = !!on;
+    if (wrap) wrap.classList.toggle("is-on", !!on);
+    const who = user && user.includes("@") ? user.split("@")[0] : "your account";
+    if (hint) {
+      hint.textContent = on ? `${who}: no Cursor/Grok` : `${who}: escalate ok`;
+    }
+    if (note) {
+      note.textContent = on
+        ? `Ask Hawkeye to plan, research, or queue work. Local only is on for ${who} — replies stay on the free Jetson model.`
+        : "Ask Hawkeye to plan, research, or queue work. Useful items can seed the Notion board. Local only is per signed-in account.";
+    }
+  }
+
+  async function loadLocalOnlySetting() {
+    try {
+      const data = await get("/api/settings");
+      syncLocalOnlyToggle(!!data.personal_local_only, data.user);
+    } catch (_) {
+      /* optional on first paint */
+    }
   }
 
   function renderLogs(data) {
@@ -468,8 +497,32 @@
 
   loadProjects().catch((e) => toast(String(e.message || e)));
   refreshOps().catch((e) => toast(String(e.message || e)));
+  loadLocalOnlySetting().catch(() => {});
   setInterval(() => { refreshOps().catch(() => {}); }, 4000);
   setInterval(() => { loadBoard().catch(() => {}); }, 20000);
+
+  const localOnlyToggle = document.getElementById("localOnlyToggle");
+  if (localOnlyToggle) {
+    localOnlyToggle.addEventListener("change", async () => {
+      const enabled = !!localOnlyToggle.checked;
+      localOnlyToggle.disabled = true;
+      try {
+        const data = await post("/api/settings", { personal_local_only: enabled });
+        syncLocalOnlyToggle(!!data.personal_local_only, data.user);
+        toast(
+          data.personal_local_only
+            ? `Local only on for ${data.user || "you"} — free Jetson model only`
+            : `Local only off for ${data.user || "you"} — Cursor/Grok escalate allowed`
+        );
+        refreshOps().catch(() => {});
+      } catch (e) {
+        syncLocalOnlyToggle(!enabled);
+        toast(String(e.message || e));
+      } finally {
+        localOnlyToggle.disabled = false;
+      }
+    });
+  }
 
   let currentUser = null;
   let dmThreadId = null;
@@ -893,6 +946,9 @@
   get("/api/auth")
     .then((auth) => {
       currentUser = auth.user || (auth.profile && auth.profile.email) || null;
+      if (typeof auth.personal_local_only === "boolean") {
+        syncLocalOnlyToggle(auth.personal_local_only, auth.user);
+      }
       const btn = document.getElementById("logoutBtn");
       const accountBtn = document.getElementById("accountBtn");
       const messagesBtn = document.getElementById("messagesBtn");

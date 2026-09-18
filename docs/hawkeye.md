@@ -153,8 +153,9 @@ Same Notion autopilot / continuous drain as Autocode when you enable those flags
 | `AUTOCODE_PRIVATE_USER` | `brown` | Login username |
 | `AUTOCODE_PRIVATE_PASSWORD_HASH` | _(required)_ | From `set_private_password.py` |
 | `AUTOCODE_PUBLIC_HOST` | `hawkeye.brownhawke.engineering` | Public hostname (docs / cookie hints) |
-| `AUTOCODE_PERSONAL_LOCAL_ONLY` | `0` | `1` = never call Cursor/Grok/APIs |
-| `AUTOCODE_LOCAL_ONLY` | `0` | Task router: allow cloud delegates |
+| `AUTOCODE_PERSONAL_LOCAL_ONLY` | `0` | Default when a user has no UI override; `1` = never call Cursor/Grok |
+| `AUTOCODE_LOCAL_ONLY` | `0` | Task router / overnight: allow cloud delegates |
+| `HAWKEYE_RUNTIME_FILE` | `state/hawkeye-runtime.json` | Per-user UI toggles (`users.<email>.personal_local_only`) |
 | `CURSOR_WEBHOOK_URL` | | Premium escalate |
 | `GROK_BOT_WEBHOOK_URL` | | Premium escalate |
 | `AUTOCODE_UI_SECURE` | `0` | Force Secure cookies |
