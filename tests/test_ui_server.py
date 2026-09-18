@@ -250,11 +250,15 @@ class UiHelpersTests(unittest.TestCase):
                 headers={"Content-Type": "application/json"},
                 method="POST",
             )
+            # Even with AUTOCODE_UI_SECURE=1, loopback HTTP must not get Secure
+            # cookies or browsers drop the session and login appears to fail.
+            os.environ["AUTOCODE_UI_SECURE"] = "1"
             with request.urlopen(good, timeout=5) as resp:
                 out = json.loads(resp.read().decode())
                 cookie = resp.headers.get("Set-Cookie", "")
             self.assertTrue(out["ok"])
             self.assertIn("hawkeye_session=", cookie)
+            self.assertNotIn("Secure", cookie)
 
             status_req = request.Request(
                 f"http://127.0.0.1:{port}/api/status",
@@ -263,6 +267,25 @@ class UiHelpersTests(unittest.TestCase):
             with request.urlopen(status_req, timeout=5) as resp:
                 snap = json.loads(resp.read().decode())
             self.assertIn("token", snap)
+
+            via_tunnel = request.Request(
+                f"http://127.0.0.1:{port}/api/login",
+                data=json.dumps(
+                    {
+                        "email": "brandon@brownhawke.engineering",
+                        "password": "secret-pass",
+                    }
+                ).encode(),
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Forwarded-Proto": "https",
+                    "Host": "hawkeye.brownhawke.engineering",
+                },
+                method="POST",
+            )
+            with request.urlopen(via_tunnel, timeout=5) as resp:
+                tunnel_cookie = resp.headers.get("Set-Cookie", "")
+            self.assertIn("Secure", tunnel_cookie)
         finally:
             httpd.shutdown()
             httpd.server_close()

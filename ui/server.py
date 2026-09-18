@@ -996,10 +996,19 @@ class Handler(BaseHTTPRequestHandler):
         return None
 
     def _wants_secure_cookie(self) -> bool:
-        if env_truthy("AUTOCODE_UI_SECURE"):
-            return True
+        """Use Secure cookies only when the browser is actually on HTTPS.
+
+        AUTOCODE_UI_SECURE=1 must not force Secure on loopback HTTP — browsers
+        drop the cookie and login looks like a bad password (redirect back to
+        /login with no session).
+        """
         proto = (self.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip().lower()
-        return proto == "https"
+        if proto == "https":
+            return True
+        host = (self.headers.get("Host") or "").split(":")[0].strip().lower()
+        if host in ("127.0.0.1", "localhost", "::1"):
+            return False
+        return env_truthy("AUTOCODE_UI_SECURE")
 
     def _authed(self) -> bool:
         return ui_auth.session_valid(self._session_token())
