@@ -8,7 +8,7 @@
 #
 # Env:
 #   HAWKEYE_UPDATE_ENABLED=0     skip updates (timer still fires, exits 0)
-#   HAWKEYE_UPDATE_BRANCH=       remote branch to track (default: current branch, else main)
+#   HAWKEYE_UPDATE_BRANCH=main   remote branch to track (default: main)
 #   HAWKEYE_UPDATE_REMOTE=origin
 #   HAWKEYE_UPDATE_RECREATE_MODEL=1  rebuild coder-64k when Modelfile changes
 #
@@ -34,10 +34,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 ENABLED="${HAWKEYE_UPDATE_ENABLED:-1}"
-BRANCH="${HAWKEYE_UPDATE_BRANCH:-}"
-if [[ -z "$BRANCH" ]]; then
-  BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
-fi
+BRANCH="${HAWKEYE_UPDATE_BRANCH:-main}"
 if [[ -z "$BRANCH" || "$BRANCH" == "HEAD" ]]; then
   BRANCH="main"
 fi

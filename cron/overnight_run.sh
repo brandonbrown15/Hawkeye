@@ -43,10 +43,19 @@ if [[ "$FORCE" -eq 0 \
   exit 0
 fi
 
-# Live mode needs Notion; mock/demo does not.
-if [[ " ${PASS_ARGS[*]} " != *" --mock "* && -z "${NOTION_TOKEN:-}" ]]; then
-  echo "NOTION_TOKEN unset — aborting (configure local .env) or pass --mock"
-  exit 1
+# Live mode needs Notion (Connections vault or machine .env); mock/demo does not.
+if [[ " ${PASS_ARGS[*]} " != *" --mock "* ]]; then
+  if ! (
+    cd "$ROOT" && python3 - <<'PY'
+import sys
+from notion.client import load_dotenv, resolve_notion_token
+load_dotenv()
+sys.exit(0 if resolve_notion_token() else 1)
+PY
+  ); then
+    echo "Notion token unset — add Account → Connections → Notion or NOTION_TOKEN in .env (or pass --mock)"
+    exit 1
+  fi
 fi
 
 # Share a lock with the continuous worker so cycles never overlap.

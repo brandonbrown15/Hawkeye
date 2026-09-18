@@ -16,7 +16,8 @@ This is **not** the public [Autocode](https://github.com/brandonbrown15/Autocode
 | **Talk to Hawkeye** | Direct chat with local Ollama; optional Notion seeding |
 | **Local Ollama** | `coder-64k` (Qwen2.5-Coder 7B + 64k ctx) branded as Hawkeye |
 | **Vector memory** | Chat/decisions on the 4TB SSD (`nomic-embed-text`) |
-| **Web research** | Lookup + citations in chat |
+| **Web research** | Deep page-read lookup + citations in chat |
+| **Email inbox** | Resend inbound → local draft → approve to send |
 | **Cursor / Grok** | Escalate strenuous asks via webhooks |
 | **Login** | `@brownhawke.engineering` work emails only |
 | **Per-user accounts** | Profile, encrypted connections, shared projects, DMs |
@@ -168,7 +169,8 @@ HAWKEYE_USERS_FILE=config/users.json
 AUTOCODE_PUBLIC_HOST=hawkeye.brownhawke.engineering
 AUTOCODE_UI_SECURE=1
 
-# Escalate hard asks (recommended)
+# Escalate hard asks (recommended). Flip "Local only" in the UI header anytime
+# to force free Jetson Ollama only (persists in state/hawkeye-runtime.json).
 AUTOCODE_PERSONAL_LOCAL_ONLY=0
 CURSOR_WEBHOOK_URL=https://…
 GROK_BOT_WEBHOOK_URL=https://…
@@ -239,6 +241,23 @@ ollama pull nomic-embed-text
 Never commit `memories.jsonl` or sync personal memory into public Autocode.
 
 Docs: [docs/memory.md](docs/memory.md) · [docs/research.md](docs/research.md)
+
+Deep research (`HAWKEYE_RESEARCH_DEEP=1`, default) fetches top result pages so answers use page text, not just snippets. Say `deep research …` in chat.
+
+### 5b. Email answering (optional)
+
+Use Resend receiving on a **subdomain** (e.g. `agent.brownhawke.engineering`) so it does not fight Cloudflare Email Routing on the apex:
+
+```bash
+# .env
+HAWKEYE_MAIL_ENABLED=1
+RESEND_API_KEY=re_…
+RESEND_WEBHOOK_SECRET=whsec_…
+HAWKEYE_MAIL_FROM=hawkeye@agent.brownhawke.engineering
+```
+
+Webhook URL: `https://hawkeye.brownhawke.engineering/api/webhooks/resend`  
+Approve drafts in the UI **Email inbox**. Guide: [docs/mail.md](docs/mail.md).
 
 ### 6. Boot auto-start
 
@@ -328,7 +347,8 @@ More: [docs/architecture.md](docs/architecture.md) · [docs/how-ai-talks.md](doc
 | [docs/pm.md](docs/pm.md) | Notion-backed team PM UI |
 | [docs/ui.md](docs/ui.md) | Dashboard + remote access |
 | [docs/memory.md](docs/memory.md) | Vector memory |
-| [docs/research.md](docs/research.md) | Web research |
+| [docs/research.md](docs/research.md) | Deep web research |
+| [docs/mail.md](docs/mail.md) | Email inbox + answer |
 | [docs/accounts.md](docs/accounts.md) | Per-user connections, projects, DMs |
 | [docs/security.md](docs/security.md) | Login, tunnel, memory privacy |
 | [docs/notion-setup.md](docs/notion-setup.md) | Notion provision / seed |

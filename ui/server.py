@@ -29,6 +29,7 @@ sys.path.insert(0, str(ROOT))
 from orchestrator import health as health_mod  # noqa: E402
 from orchestrator import ops  # noqa: E402
 from ui import auth as ui_auth  # noqa: E402
+from ui import runtime_settings as runtime  # noqa: E402
 
 STATIC = Path(__file__).resolve().parent / "static"
 STATE = ROOT / "state"
@@ -47,6 +48,7 @@ _PUBLIC_GET = {
 }
 _PUBLIC_POST = {
     "/api/login",
+    "/api/webhooks/resend",
 }
 
 _demo_lock = threading.Lock()
@@ -102,7 +104,7 @@ def gh_authed() -> bool:
         return False
 
 
-def readiness() -> dict[str, Any]:
+def readiness(*, user: str | None = None) -> dict[str, Any]:
     hermes_ok = False
     ollama_ok = False
     model = os.environ.get("OLLAMA_MODEL", "coder-64k")
@@ -117,7 +119,12 @@ def readiness() -> dict[str, Any]:
 
     cursor_cmd = os.environ.get("AUTOCODE_CURSOR_DELEGATE_CMD", "")
     grok_cmd = os.environ.get("AUTOCODE_GROK_DELEGATE_CMD", "")
-    local_only = env_truthy("AUTOCODE_LOCAL_ONLY", "1")
+    # Autopilot/cloud readiness uses global LOCAL_ONLY (not per-user chat toggle).
+    runtime_data = runtime.load()
+    if "local_only" in runtime_data:
+        local_only = runtime.autopilot_local_only()
+    else:
+        local_only = env_truthy("AUTOCODE_LOCAL_ONLY", "1")
 
     checks = [
         {"id": "env", "label": ".env present", "ok": (ROOT / ".env").exists(), "hint": "Run ./start"},
@@ -186,9 +193,20 @@ def readiness() -> dict[str, Any]:
         },
         {
             "id": "research",
-            "label": "Web research",
+            "label": "Web research (deep page read)",
             "ok": env_truthy("HAWKEYE_RESEARCH_ENABLED", "1"),
-            "hint": "Account → Connections → Brave Search (optional); else DuckDuckGo HTML",
+            "hint": "Account → Connections → Brave; HAWKEYE_RESEARCH_DEEP=1 fetches pages",
+            "optional": True,
+        },
+        {
+            "id": "mail",
+            "label": "Email inbox (Resend)",
+            "ok": (not env_truthy("HAWKEYE_MAIL_ENABLED"))
+            or (
+                has_env("RESEND_API_KEY")
+                and (has_env("RESEND_WEBHOOK_SECRET") or env_truthy("HAWKEYE_MAIL_ALLOW_UNSIGNED"))
+            ),
+            "hint": "Account → Connections or .env: HAWKEYE_MAIL_ENABLED + Resend keys",
             "optional": True,
         },
         {
@@ -219,7 +237,8 @@ def readiness() -> dict[str, Any]:
     return {
         "ready": all(c["ok"] for c in checks if not c.get("optional")),
         "local_only": local_only,
-        "personal_local_only": ui_auth.personal_local_only(),
+        "personal_local_only": ui_auth.personal_local_only(user),
+        "settings_user": runtime.normalize_user(user),
         "private_mode": ui_auth.private_mode_enabled(),
         "product": ui_auth.product_name(),
         "public_host": ui_auth.public_host(),
@@ -595,7 +614,10 @@ def _research_context(message: str) -> tuple[str, dict[str, Any] | None]:
 
         if not wants_research(message):
             return "", None
-        result = research(message, limit=int(os.environ.get("HAWKEYE_RESEARCH_TOP_K", "5") or "5"))
+        result = research(
+            message,
+            limit=int(os.environ.get("HAWKEYE_RESEARCH_TOP_K", "5") or "5"),
+        )
         return result.format_for_prompt(), result.to_dict()
     except Exception as e:  # noqa: BLE001
         print(f"[ui-chat] research failed: {e}")
@@ -642,14 +664,27 @@ def _persist_memory(
         return None
 
 
-def handle_chat(message: str, seed_notion: bool = True, *, email: str | None = None) -> dict[str, Any]:
+def _is_open_user(user: str | None) -> bool:
+    return not user or user in ("open@local", runtime.OPEN_USER)
+
+
+def handle_chat(
+    message: str,
+    seed_notion: bool = True,
+    *,
+    email: str | None = None,
+    user: str | None = None,
+) -> dict[str, Any]:
     message = (message or "").strip()
     if not message:
         return {"ok": False, "error": "message required"}
     from ui import connections
 
+    email = email if email is not None else user
+    if _is_open_user(email):
+        email = None
     connections.set_request_user(email)
-    stay_local = ui_auth.personal_local_only()
+    stay_local = ui_auth.personal_local_only(email)
     name = ui_auth.product_name()
     memory_prompt, memory_hits = _memory_context(message)
     research_prompt, research_payload = _research_context(message)
@@ -709,6 +744,7 @@ def handle_chat(message: str, seed_notion: bool = True, *, email: str | None = N
                     title=str(s.get("title") or ""),
                     url=str(s.get("url") or ""),
                     snippet=str(s.get("snippet") or ""),
+                    excerpt=str(s.get("excerpt") or ""),
                 )
                 for s in research_payload["sources"]
                 if isinstance(s, dict)
@@ -918,12 +954,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _read_json(self) -> dict[str, Any]:
+    def _read_raw(self) -> bytes:
         length = int(self.headers.get("Content-Length", "0") or 0)
         if length <= 0:
+            return b""
+        return self.rfile.read(length)
+
+    def _read_json(self) -> dict[str, Any]:
+        raw = self._read_raw()
+        if not raw:
             return {}
         try:
-            data = json.loads(self.rfile.read(length).decode() or "{}")
+            data = json.loads(raw.decode() or "{}")
             return data if isinstance(data, dict) else {}
         except json.JSONDecodeError:
             return {}
@@ -933,16 +975,18 @@ class Handler(BaseHTTPRequestHandler):
         tok = hdr or (data or {}).get("token") or ""
         return secrets.compare_digest(str(tok), TOKEN)
 
-    def _session_token(self) -> str | None:
-        return ui_auth.parse_session_cookie(self.headers.get("Cookie"))
-
     def _current_user(self) -> str | None:
-        user = ui_auth.session_user(self._session_token())
+        """Signed-in email, or open-mode synthetic user for per-account settings."""
+        token = self._session_token()
+        user = ui_auth.session_user(token)
         if user:
             return user
         if not ui_auth.private_mode_enabled():
-            return "open@local"
+            return runtime.OPEN_USER
         return None
+
+    def _session_token(self) -> str | None:
+        return ui_auth.parse_session_cookie(self.headers.get("Cookie"))
 
     def _require_user(self) -> str | None:
         user = self._current_user()
@@ -986,7 +1030,7 @@ class Handler(BaseHTTPRequestHandler):
             from ui import connections
 
             user = self._current_user()
-            if user and user != "open@local":
+            if user and not _is_open_user(user):
                 connections.set_request_user(user)
             else:
                 connections.set_request_user(None)
@@ -1026,24 +1070,25 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/auth":
             user = self._current_user() if self._authed() or not ui_auth.private_mode_enabled() else None
             profile = None
-            if user and user != "open@local":
+            if user and not _is_open_user(user):
                 try:
                     from ui import accounts
 
                     profile = accounts.get_profile(user)
                 except Exception:  # noqa: BLE001
                     profile = None
+            auth_user = None if _is_open_user(user) else user
             return self._send(
                 *json_response(
                     {
                         "private_mode": ui_auth.private_mode_enabled(),
                         "credentials_ready": ui_auth.credentials_ready(),
-                        "personal_local_only": ui_auth.personal_local_only(),
+                        "personal_local_only": ui_auth.personal_local_only(auth_user),
                         "product": ui_auth.product_name(),
                         "public_host": ui_auth.public_host(),
                         "allowed_email_domain": ui_auth.allowed_email_domain(),
                         "authed": self._authed(),
-                        "user": user if user != "open@local" else None,
+                        "user": auth_user,
                         "profile": profile,
                     }
                 )
@@ -1058,7 +1103,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/status":
             return self._send(*json_response(snapshot()))
         if path == "/api/ready":
-            return self._send(*json_response(readiness()))
+            return self._send(*json_response(readiness(user=self._current_user())))
+        if path == "/api/settings":
+            return self._send(
+                *json_response({"ok": True, **runtime.effective(self._current_user())})
+            )
         if path == "/api/machine":
             user = self._require_user()
             if not user:
@@ -1135,6 +1184,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(*json_response({"ok": True, **get_store().stats()}))
             except Exception as e:  # noqa: BLE001
                 return self._send(*json_response({"ok": False, "error": str(e)}, 500))
+        if path == "/api/mail":
+            from urllib.parse import parse_qs
+
+            from mail import list_messages
+
+            qs = parse_qs(urlparse(self.path).query)
+            status = (qs.get("status") or ["all"])[0]
+            limit = int((qs.get("limit") or ["40"])[0] or 40)
+            return self._send(*json_response(list_messages(limit=limit, status=status)))
         if path == "/api/projects" or path == "/api/boards":
             return self._send(*json_response(handle_list_boards()))
         if path == "/api/tasks":
@@ -1156,6 +1214,26 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
+
+        # Resend inbound webhook — raw body required for signature verify.
+        if path == "/api/webhooks/resend":
+            if not env_truthy("HAWKEYE_MAIL_ENABLED"):
+                return self._send(
+                    *json_response({"ok": False, "error": "HAWKEYE_MAIL_ENABLED=0"}, 503)
+                )
+            raw = self._read_raw()
+            headers = {k: v for k, v in self.headers.items()}
+            try:
+                from mail import handle_inbound_payload
+                from mail.webhook import WebhookError
+
+                out = handle_inbound_payload(raw, headers=headers)
+                return self._send(*json_response(out))
+            except WebhookError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
+            except Exception as e:  # noqa: BLE001
+                return self._send(*json_response({"ok": False, "error": str(e)}, 500))
+
         data = self._read_json()
 
         if path == "/api/login":
@@ -1419,6 +1497,29 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 )
             )
+        if path == "/api/settings":
+            if "personal_local_only" not in data and "local_only" not in data:
+                return self._send(
+                    *json_response(
+                        {"ok": False, "error": "pass personal_local_only (bool)"},
+                        400,
+                    )
+                )
+            user = self._current_user()
+            if not user:
+                return self._send(
+                    *json_response({"ok": False, "error": "login required for settings"}, 401)
+                )
+            raw = data.get("personal_local_only", data.get("local_only"))
+            if isinstance(raw, str):
+                enabled = raw.lower() in ("1", "true", "yes", "on")
+            else:
+                enabled = bool(raw)
+            try:
+                out = runtime.set_personal_local_only(enabled, user=user)
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
+            return self._send(*json_response({"ok": True, **out}))
         if path == "/api/demo":
             return self._send(*json_response(start_demo()))
         if path == "/api/work":
@@ -1427,7 +1528,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/chat":
             user = self._current_user()
-            email = user if user and user != "open@local" else None
+            email = None if _is_open_user(user) else user
             return self._send(
                 *json_response(
                     handle_chat(
@@ -1438,6 +1539,45 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 )
             )
+        if path == "/api/mail/inject":
+            # Authenticated helper to drop a sample email into the inbox (no Resend).
+            from mail import handle_inbound_payload
+
+            return self._send(
+                *json_response(
+                    handle_inbound_payload(
+                        json.dumps(
+                            {
+                                "from": data.get("from") or data.get("from_addr"),
+                                "to": data.get("to") or data.get("to_addr"),
+                                "subject": data.get("subject") or "",
+                                "body": data.get("body") or "",
+                            }
+                        ),
+                        skip_verify=True,
+                    )
+                )
+            )
+        if path.startswith("/api/mail/") and path.endswith("/draft"):
+            from mail import draft_reply
+
+            msg_id = path[len("/api/mail/") : -len("/draft")].strip("/")
+            return self._send(*json_response(draft_reply(msg_id)))
+        if path.startswith("/api/mail/") and path.endswith("/send"):
+            from mail import send_reply
+
+            msg_id = path[len("/api/mail/") : -len("/send")].strip("/")
+            draft = data.get("draft")
+            return self._send(
+                *json_response(
+                    send_reply(msg_id, draft=str(draft) if draft is not None else None)
+                )
+            )
+        if path.startswith("/api/mail/") and path.endswith("/ignore"):
+            from mail import ignore_message
+
+            msg_id = path[len("/api/mail/") : -len("/ignore")].strip("/")
+            return self._send(*json_response(ignore_message(msg_id)))
         if path.startswith("/api/tasks/") and (
             self.headers.get("X-HTTP-Method-Override", "").upper() == "PATCH"
             or str(data.get("_method") or "").upper() == "PATCH"

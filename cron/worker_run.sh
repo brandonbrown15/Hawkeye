@@ -53,10 +53,18 @@ if [[ "$FORCE" -eq 0 \
 fi
 
 if [[ " ${PASS_ARGS[*]} " != *" --mock "* \
-  && " ${PASS_ARGS[*]} " != *" --dry-run "* \
-  && -z "${NOTION_TOKEN:-}" ]]; then
-  echo "NOTION_TOKEN unset — aborting or pass --mock / --dry-run"
-  exit 1
+  && " ${PASS_ARGS[*]} " != *" --dry-run "* ]]; then
+  if ! (
+    cd "$ROOT" && python3 - <<'PY'
+import sys
+from notion.client import load_dotenv, resolve_notion_token
+load_dotenv()
+sys.exit(0 if resolve_notion_token() else 1)
+PY
+  ); then
+    echo "Notion token unset — Connections or NOTION_TOKEN (or --mock / --dry-run)"
+    exit 1
+  fi
 fi
 
 # Default continuous batch is small (1 task) so daytime work stays snappy.

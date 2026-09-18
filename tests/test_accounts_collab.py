@@ -62,6 +62,17 @@ class AccountsCollabTests(unittest.TestCase):
         self.assertIn("brandon@brownhawke.engineering", emails)
         self.assertIn("mark@brownhawke.engineering", emails)
 
+    def test_refuse_secrets_without_encryption_key(self) -> None:
+        os.environ.pop("HAWKEYE_MEMORY_KEY", None)
+        with self.assertRaises(ValueError) as ctx:
+            connections.set_connection(
+                "brandon@brownhawke.engineering",
+                "github",
+                secrets={"token": "ghp_should_fail"},
+            )
+        self.assertIn("HAWKEYE_MEMORY_KEY", str(ctx.exception))
+        os.environ["HAWKEYE_MEMORY_KEY"] = "test-secrets-key-for-unit-tests"
+
     def test_connections_isolated_and_encrypted(self) -> None:
         connections.set_connection(
             "brandon@brownhawke.engineering",
@@ -102,6 +113,22 @@ class AccountsCollabTests(unittest.TestCase):
             connections.list_connections("brandon@brownhawke.engineering")["providers"]["github"]["status"],
             "disconnected",
         )
+
+    def test_notion_token_resolves_from_operator_vault(self) -> None:
+        from notion import client as notion_client
+
+        connections.set_connection(
+            "brandon@brownhawke.engineering",
+            "notion",
+            secrets={"token": "ntn_operator_vault"},
+        )
+        connections.set_request_user(None)
+        os.environ.pop("NOTION_TOKEN", None)
+        self.assertEqual(notion_client.resolve_notion_token(), "ntn_operator_vault")
+        os.environ["NOTION_TOKEN"] = "ntn_machine_env"
+        connections.disconnect("brandon@brownhawke.engineering", "notion")
+        self.assertEqual(notion_client.resolve_notion_token(), "ntn_machine_env")
+        del os.environ["NOTION_TOKEN"]
 
     def test_provider_catalog_covers_integrations(self) -> None:
         for pid in (

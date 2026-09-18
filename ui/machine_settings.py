@@ -41,24 +41,22 @@ PUBLIC_KEYS = frozenset(
 
 
 def admin_emails() -> set[str]:
-    raw = os.environ.get("HAWKEYE_ADMIN_EMAILS", "").strip()
-    if raw:
+    """Emails allowed to change Jetson-wide Machine settings.
+
+    Default is Brandon only. Set HAWKEYE_ADMIN_EMAILS (comma-separated) to
+    extend or replace. An explicit empty value denies everyone.
+    """
+    raw = os.environ.get("HAWKEYE_ADMIN_EMAILS")
+    if raw is not None:
         return {ui_auth.normalize_email(x) for x in raw.split(",") if x.strip()}
-    # Default: every configured work user can manage the Jetson from the UI.
-    try:
-        return set(ui_auth.load_users().keys())
-    except Exception:  # noqa: BLE001
-        return set()
+    return {"brandon@brownhawke.engineering"}
 
 
 def is_admin(email: str | None) -> bool:
     if not email:
         return False
     email = ui_auth.normalize_email(email)
-    allowed = admin_emails()
-    if not allowed:
-        return True
-    return email in allowed
+    return email in admin_emails()
 
 
 def _read_env_file() -> dict[str, str]:
@@ -139,17 +137,7 @@ def update_status() -> dict[str, Any]:
     timer_ok, timer_out = _systemctl_user("is-active", "hawkeye-update.timer")
     ui_ok, _ = _systemctl_user("is-active", "hawkeye-ui.service")
     tunnel_ok, _ = _systemctl_user("is-active", "hawkeye-tunnel.service")
-    branch = os.environ.get("HAWKEYE_UPDATE_BRANCH", "").strip()
-    if not branch:
-        try:
-            branch = subprocess.check_output(
-                ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                cwd=str(ROOT),
-                text=True,
-                timeout=10,
-            ).strip()
-        except Exception:  # noqa: BLE001
-            branch = "main"
+    branch = os.environ.get("HAWKEYE_UPDATE_BRANCH", "").strip() or "main"
     return {
         "update_enabled": os.environ.get("HAWKEYE_UPDATE_ENABLED", "1").strip() != "0",
         "update_branch": branch,

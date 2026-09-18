@@ -58,3 +58,4 @@ This cloud agent does **not** have Cloudflare credentials, so routing must be cr
 
 - Replies still send from Outlook, not from `@brownhawke.engineering` (Email Routing is receive/forward only).
 - Catch-all is optional; prefer explicit rules for the eng team.
+- For **Hawkeye to answer mail with the local model**, use Resend receiving on a subdomain — see [mail.md](mail.md). Do not point the apex MX at both Cloudflare Routing and Resend.

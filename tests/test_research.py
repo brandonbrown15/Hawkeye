@@ -15,14 +15,6 @@ from research import wants_research  # noqa: E402
 from research.web import ResearchResult, ResearchSource, _parse_ddg_html, research  # noqa: E402
 
 
-class WantsResearchTests(unittest.TestCase):
-    def test_triggers(self) -> None:
-        self.assertTrue(wants_research("research Jetson Ollama CUDA install"))
-        self.assertTrue(wants_research("look up the nomic-embed-text docs"))
-        self.assertTrue(wants_research("/research cloudflare tunnel dns"))
-        self.assertFalse(wants_research("pause the overnight run"))
-
-
 class ParseTests(unittest.TestCase):
     def test_parse_ddg_html(self) -> None:
         page = """
@@ -42,16 +34,19 @@ class ResearchTests(unittest.TestCase):
         result = ResearchResult(
             query="ollama embeddings",
             provider="duckduckgo",
+            deep=True,
             sources=[
                 ResearchSource(
                     title="Ollama embeddings",
                     url="https://example.com/embed",
                     snippet="Use /api/embeddings",
+                    excerpt="Call POST /api/embeddings with model nomic-embed-text.",
                 )
             ],
         )
         text = result.format_for_prompt()
         self.assertIn("https://example.com/embed", text)
+        self.assertIn("Page excerpt", text)
         self.assertIn("Cite these URLs", text)
 
     def test_research_uses_mock_provider(self) -> None:
@@ -61,10 +56,47 @@ class ResearchTests(unittest.TestCase):
             sources=[ResearchSource(title="t", url="https://x.test", snippet="s")],
         )
         with mock.patch("research.web._brave_search", return_value=fake):
-            with mock.patch.dict("os.environ", {"BRAVE_SEARCH_API_KEY": "x"}, clear=False):
-                out = research("research something")
+            with mock.patch("research.web._enrich_with_pages"):
+                with mock.patch.dict(
+                    "os.environ",
+                    {"BRAVE_SEARCH_API_KEY": "x", "HAWKEYE_RESEARCH_DEEP": "0"},
+                    clear=False,
+                ):
+                    out = research("research something", deep=False)
         self.assertEqual(out.provider, "brave")
         self.assertEqual(out.sources[0].url, "https://x.test")
+
+    def test_deep_enriches_pages(self) -> None:
+        fake = ResearchResult(
+            query="cloudflare tunnel",
+            provider="brave",
+            sources=[
+                ResearchSource(title="Tunnel docs", url="https://docs.example.com/tunnel", snippet="short")
+            ],
+        )
+        with mock.patch("research.web._serp", return_value=fake):
+            with mock.patch("research.web.fetch_page_text", return_value="Cloudflare Tunnel exposes services without opening ports."):
+                with mock.patch.dict("os.environ", {"HAWKEYE_RESEARCH_DEEP": "1", "HAWKEYE_RESEARCH_MAX_ROUNDS": "1"}, clear=False):
+                    out = research("deep research cloudflare tunnel", deep=True)
+        self.assertTrue(out.deep)
+        self.assertIn("exposes services", out.sources[0].excerpt)
+
+    def test_html_to_text(self) -> None:
+        from research.web import _html_to_text
+
+        text = _html_to_text("<html><script>bad()</script><body><h1>Hello</h1><p>World</p></body></html>")
+        self.assertIn("Hello", text)
+        self.assertIn("World", text)
+        self.assertNotIn("bad()", text)
+
+
+class WantsResearchTests(unittest.TestCase):
+    def test_triggers(self) -> None:
+        self.assertTrue(wants_research("research Jetson Ollama CUDA install"))
+        self.assertTrue(wants_research("look up the nomic-embed-text docs"))
+        self.assertTrue(wants_research("/research cloudflare tunnel dns"))
+        self.assertTrue(wants_research("deep search Cloudflare Tunnel"))
+        self.assertFalse(wants_research("pause the overnight run"))
 
 
 if __name__ == "__main__":

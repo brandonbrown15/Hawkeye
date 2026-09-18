@@ -58,6 +58,24 @@ class MachineSettingsTests(unittest.TestCase):
                 os.environ[k] = v
         ui_auth.clear_users_cache()
 
+    def test_default_admin_is_brandon_only(self) -> None:
+        self.assertTrue(machine_settings.is_admin("brandon@brownhawke.engineering"))
+        self.assertFalse(machine_settings.is_admin("mark@brownhawke.engineering"))
+        os.environ["HAWKEYE_ADMIN_EMAILS"] = "mark@brownhawke.engineering"
+        self.assertFalse(machine_settings.is_admin("brandon@brownhawke.engineering"))
+        self.assertTrue(machine_settings.is_admin("mark@brownhawke.engineering"))
+
+    def test_non_admin_cannot_apply(self) -> None:
+        with self.assertRaises(PermissionError):
+            machine_settings.apply(
+                "mark@brownhawke.engineering",
+                {"update_branch": "main"},
+            )
+
+    def test_update_branch_defaults_to_main(self) -> None:
+        st = machine_settings.update_status()
+        self.assertEqual(st["update_branch"], "main")
+
     def test_apply_writes_tunnel_and_branch(self) -> None:
         out = machine_settings.apply(
             "brandon@brownhawke.engineering",

@@ -37,17 +37,17 @@ Stored in `$AUTOCODE_DATA_ROOT/hawkeye/accounts/profiles.json` (or `state/hawkey
 | Brave Search | API key (else DuckDuckGo HTML) |
 | Telegram | Bot token + chat id |
 
-Encrypt at rest with `HAWKEYE_MEMORY_KEY` or dedicated `HAWKEYE_SECRETS_KEY` (set under **Account → Machine**). The UI never displays raw secrets after save.
+Encrypt at rest with `HAWKEYE_MEMORY_KEY` or dedicated `HAWKEYE_SECRETS_KEY` (set under **Account → Machine** first — saves are refused without it). The UI never displays raw secrets after save.
 
 ## Machine (Jetson-wide)
 
-**Account → Machine** (any configured work user by default; restrict with `HAWKEYE_ADMIN_EMAILS`):
+**Account → Machine** (default admin: `brandon@brownhawke.engineering`; set `HAWKEYE_ADMIN_EMAILS` to add more):
 
 | Setting | Effect |
 |---------|--------|
 | Cloudflare Tunnel install token | Writes `TUNNEL_TOKEN` to `.env`, reinstalls/restarts `hawkeye-tunnel.service` |
-| `HAWKEYE_MEMORY_KEY` | Enables encryption for connections + vector memory |
-| Auto-update branch | `HAWKEYE_UPDATE_BRANCH` (default: current git branch) |
+| `HAWKEYE_MEMORY_KEY` | **Required** before saving Connections secrets (encrypts at rest) |
+| Auto-update branch | `HAWKEYE_UPDATE_BRANCH` (default: **main**) |
 | Pull every 5 min | `HAWKEYE_UPDATE_ENABLED` + `hawkeye-update.timer` |
 | Force update now | Runs `hawkeye_self_update.sh --force` |
 
@@ -57,8 +57,9 @@ HAWKEYE_MEMORY_KEY=…long passphrase…
 # HAWKEYE_SECRETS_KEY=…
 # HAWKEYE_ACCOUNTS_DIR=/path/on/ssd/hawkeye/accounts
 # HAWKEYE_ADMIN_EMAILS=brandon@brownhawke.engineering
+# HAWKEYE_AUTOPILOT_EMAIL=brandon@brownhawke.engineering
 HAWKEYE_UPDATE_ENABLED=1
-# HAWKEYE_UPDATE_BRANCH=main   # omit to track current branch
+HAWKEYE_UPDATE_BRANCH=main
 ```
 
 ## Shared projects
@@ -96,7 +97,8 @@ This is separate from Notion boards (`/api/projects`). Notion boards use your Co
 ## Security notes
 
 - Never put PATs in `config/users.json`  
-- Prefer encrypted storage (`HAWKEYE_MEMORY_KEY`) before production use  
+- Set `HAWKEYE_MEMORY_KEY` before saving Connections — plaintext (`plain:`) storage is refused  
+- Overnight autopilot reads Notion via Connections vault (`HAWKEYE_AUTOPILOT_EMAIL`) or machine `NOTION_TOKEN`  
 - Share/DM targets must be allowlisted domain + existing Hawkeye users  
 - Gitignore / keep `hawkeye/accounts/` off git and off public Autocode  
 - Tunnel install token is machine-scoped (not per coworker)  

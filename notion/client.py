@@ -35,10 +35,41 @@ def load_dotenv() -> None:
         os.environ.setdefault(key.strip(), val.strip().strip('"').strip("'"))
 
 
+def resolve_notion_token() -> str:
+    """Prefer Account → Connections Notion token, then machine NOTION_TOKEN.
+
+    Overnight / worker (no HTTP session) looks up the autopilot operator vault:
+    HAWKEYE_AUTOPILOT_EMAIL, else first HAWKEYE_ADMIN_EMAILS entry, else Brandon.
+    """
+    try:
+        from ui import connections
+
+        tok = connections.resolve_secret("notion", "token")
+        if tok:
+            return tok
+        auto = os.environ.get("HAWKEYE_AUTOPILOT_EMAIL", "").strip()
+        if not auto:
+            admins = os.environ.get("HAWKEYE_ADMIN_EMAILS")
+            if admins is None:
+                auto = "brandon@brownhawke.engineering"
+            else:
+                auto = next((x.strip() for x in admins.split(",") if x.strip()), "")
+        if auto:
+            tok = connections.resolve_secret("notion", "token", email=auto)
+            if tok:
+                return tok
+    except Exception:  # noqa: BLE001
+        pass
+    return os.environ.get("NOTION_TOKEN", "").strip()
+
+
 def notion_request(method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
-    token = os.environ.get("NOTION_TOKEN", "").strip()
+    token = resolve_notion_token()
     if not token:
-        raise SystemExit("NOTION_TOKEN is required (set in .env on the Jetson)")
+        raise SystemExit(
+            "Notion token required — add under Account → Connections → Notion "
+            "or set NOTION_TOKEN in .env on the Jetson"
+        )
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(
         f"{API}{path}",
