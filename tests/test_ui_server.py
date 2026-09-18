@@ -306,6 +306,81 @@ class UiHelpersTests(unittest.TestCase):
         users = ui_auth.load_users(reload=True)
         self.assertIn("brandon@brownhawke.engineering", users)
 
+    def test_chat_history_passed_to_ollama(self) -> None:
+        os.environ["AUTOCODE_PERSONAL_LOCAL_ONLY"] = "1"
+        captured: dict = {}
+
+        def fake_ollama(message: str, system: str, *, history=None):
+            captured["message"] = message
+            captured["system"] = system
+            captured["history"] = history
+            return "Hawkeye is the private BrownHawke Jetson assistant with UI, Ollama, and Notion boards."
+
+        with mock.patch.object(ui_server, "_ollama_chat", side_effect=fake_ollama):
+            out = ui_server.handle_chat(
+                "I sent it to you?",
+                seed_notion=False,
+                history=[
+                    {"role": "user", "content": "review https://github.com/brandonbrown15/Hawkeye"},
+                    {"role": "assistant", "content": "Please provide the repository URL"},
+                ],
+            )
+        self.assertTrue(out["ok"])
+        self.assertIn("brandonbrown15/Hawkeye", captured["system"])
+        self.assertEqual(len(captured["history"]), 2)
+        self.assertEqual(captured["history"][0]["content"], "review https://github.com/brandonbrown15/Hawkeye")
+
+    def test_stuck_url_loop_escalates(self) -> None:
+        os.environ["AUTOCODE_PERSONAL_LOCAL_ONLY"] = "0"
+        os.environ["CURSOR_API_KEY"] = "test-key"
+        hist = [
+            {"role": "user", "content": "https://github.com/brandonbrown15/Hawkeye"},
+            {"role": "assistant", "content": "Please provide the repository URL"},
+        ]
+        with mock.patch.object(
+            ui_server,
+            "_ollama_chat",
+            return_value="Please provide the repository URL so I can review it.",
+        ):
+            with mock.patch(
+                "integrations.cursor_cloud.escalate_chat",
+                return_value="Review started on Cursor",
+            ) as esc:
+                out = ui_server.handle_chat(
+                    "I sent it to you?",
+                    seed_notion=False,
+                    history=hist,
+                )
+        self.assertTrue(out["escalated"])
+        self.assertEqual(out["provider"], "Cursor")
+        esc.assert_called_once()
+
+    def test_repo_review_ask_escalates(self) -> None:
+        os.environ["AUTOCODE_PERSONAL_LOCAL_ONLY"] = "0"
+        os.environ["CURSOR_API_KEY"] = "test-key"
+        with mock.patch.object(ui_server, "_ollama_chat", return_value="I can try a shallow look locally."):
+            with mock.patch(
+                "integrations.cursor_cloud.escalate_chat",
+                return_value="Cloud review",
+            ) as esc:
+                out = ui_server.handle_chat(
+                    "Can you review the GitHub repo Hawkeye please",
+                    seed_notion=False,
+                )
+        self.assertTrue(out["escalated"])
+        esc.assert_called_once()
+
+    def test_normalize_chat_history(self) -> None:
+        hist = ui_server._normalize_chat_history(
+            [
+                {"role": "you", "content": "hi"},
+                {"role": "local", "content": "hello"},
+                {"role": "system", "content": "ignore"},
+                {"role": "user", "content": ""},
+            ]
+        )
+        self.assertEqual(hist, [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "hello"}])
+
     def test_chat_escalates_to_cursor_webhook(self) -> None:
         os.environ["CURSOR_WEBHOOK_URL"] = "http://example.invalid/cursor"
         os.environ.pop("CURSOR_API_KEY", None)

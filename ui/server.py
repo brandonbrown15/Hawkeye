@@ -413,7 +413,63 @@ def apply_control(action: str, note: str = "", task_id: str = "") -> dict[str, A
 
 
 
-def _ollama_chat(message: str, system: str) -> str:
+def _normalize_chat_history(raw: Any, *, max_turns: int = 12) -> list[dict[str, str]]:
+    """Keep recent user/assistant turns for multi-message Ollama chat."""
+    if not isinstance(raw, list):
+        return []
+    cleaned: list[dict[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "").strip().lower()
+        if role in ("hawkeye", "local", "assistant", "ai", "bot"):
+            role = "assistant"
+        elif role in ("you", "operator", "human", "user"):
+            role = "user"
+        elif role != "user" and role != "assistant":
+            continue
+        content = str(item.get("content") or item.get("text") or "").strip()
+        if not content:
+            continue
+        cleaned.append({"role": role, "content": content[:4000]})
+    # Drop a trailing user turn if it duplicates the new message (caller adds that).
+    return cleaned[-(max_turns * 2) :]
+
+
+def _default_repo_url() -> str:
+    for key in ("CURSOR_REPOSITORY", "HAWKEYE_CURSOR_REPO", "CURSOR_REPO_URL", "HAWKEYE_GITHUB_REPO"):
+        val = os.environ.get(key, "").strip()
+        if val:
+            return val
+    return "https://github.com/brandonbrown15/Hawkeye"
+
+
+def _workspace_brief() -> str:
+    """Short local tree so the model can answer repo questions without re-asking for a URL."""
+    repo = _default_repo_url()
+    lines = [
+        f"Primary product repo: {repo}",
+        f"Local checkout: {ROOT}",
+        "This IS the Hawkeye workspace — do not ask the operator for the repository URL again.",
+        "Top-level entries:",
+    ]
+    try:
+        names = sorted(p.name for p in ROOT.iterdir() if not p.name.startswith("."))[:24]
+        for name in names:
+            path = ROOT / name
+            mark = "/" if path.is_dir() else ""
+            lines.append(f"  - {name}{mark}")
+    except OSError:
+        lines.append("  (could not list workspace)")
+    return "\n".join(lines)
+
+
+def _ollama_chat(
+    message: str,
+    system: str,
+    *,
+    history: list[dict[str, str]] | None = None,
+) -> str:
     """Call local Ollama chat API. Raises on transport/HTTP errors."""
     import json as _json
     import urllib.error
@@ -421,14 +477,20 @@ def _ollama_chat(message: str, system: str) -> str:
 
     host = os.environ.get("OLLAMA_HOST", "127.0.0.1:11434")
     model = os.environ.get("OLLAMA_MODEL", "coder-64k")
+    messages: list[dict[str, str]] = [{"role": "system", "content": system}]
+    for turn in history or []:
+        role = turn.get("role")
+        content = turn.get("content")
+        if role in ("user", "assistant") and content:
+            messages.append({"role": role, "content": content})
+    # Avoid duplicating the latest user message if the client already appended it.
+    if not (messages and messages[-1].get("role") == "user" and messages[-1].get("content") == message):
+        messages.append({"role": "user", "content": message})
     body = _json.dumps(
         {
             "model": model,
             "stream": False,
-            "messages": [
-                {"role": "system", "content": system},
-                {"role": "user", "content": message},
-            ],
+            "messages": messages,
         }
     ).encode()
     req = urllib.request.Request(
@@ -442,7 +504,7 @@ def _ollama_chat(message: str, system: str) -> str:
     return (data.get("message") or {}).get("content") or data.get("response") or ""
 
 
-def _should_escalate(message: str, local_reply: str) -> bool:
+def _should_escalate(message: str, local_reply: str, *, history: list[dict[str, str]] | None = None) -> bool:
     text = f"{message}\n{local_reply}".lower()
     triggers = (
         "escalate:",
@@ -460,6 +522,32 @@ def _should_escalate(message: str, local_reply: str) -> bool:
     if len(message) > 400 or sum(1 for k in keywords if k in message.lower()) >= 2:
         return True
     if len(local_reply.strip()) < 40:
+        return True
+
+    # Repo review / deep code inspection is better as Cursor when cloud is allowed.
+    review_ask = any(
+        k in message.lower()
+        for k in ("review the repo", "review the github", "review hawkeye", "code review", "audit the repo")
+    ) or ("github.com/" in message.lower() and "review" in message.lower())
+    if review_ask:
+        return True
+
+    # Stuck loop: model keeps asking for a URL that was already provided.
+    blob = " ".join(
+        t.get("content", "") for t in (history or []) if t.get("role") == "user"
+    ) + "\n" + message
+    url_already = "github.com/" in blob.lower() or "hawkeye" in blob.lower()
+    asking_url = any(
+        p in local_reply.lower()
+        for p in (
+            "provide the repository url",
+            "provide the url",
+            "repository url so i",
+            "send the repo",
+            "what is the repo",
+        )
+    )
+    if url_already and asking_url:
         return True
     return False
 
@@ -738,6 +826,7 @@ def handle_chat(
     *,
     email: str | None = None,
     user: str | None = None,
+    history: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     message = (message or "").strip()
     if not message:
@@ -750,32 +839,40 @@ def handle_chat(
     connections.set_request_user(email)
     stay_local = ui_auth.personal_local_only(email)
     name = ui_auth.product_name()
+    prior = _normalize_chat_history(history)
+    # Drop trailing duplicate of the current user message if the client included it.
+    if prior and prior[-1]["role"] == "user" and prior[-1]["content"] == message:
+        prior = prior[:-1]
     memory_prompt, memory_hits = _memory_context(message)
     research_prompt, research_payload = _research_context(message)
     system = (
         f"You are {name} — BrownHawke's private assistant engineer / project manager "
         "running on a Jetson (free all-day local model). "
         "You research, remember, and drive other AIs/software to finish engineering work. "
-        "Be concise. "
+        "Be concise. Use conversation history — never re-ask for facts the operator already gave. "
         "If the request is too strenuous for a local model, start with ESCALATE: and say why "
         "so Cursor or Grok Bot can take over. If a durable follow-up should be queued, "
         "end with IMPROVE: <checklist item> or BUG: <bug>. "
-        "When web research is provided, cite the source URLs."
+        "When web research is provided, cite the source URLs.\n\n"
+        f"{_workspace_brief()}"
     )
     if memory_prompt:
         system += "\n\n" + memory_prompt
     if research_prompt:
         system += "\n\n" + research_prompt
     if stay_local:
-        system += " PERSONAL_LOCAL_ONLY is on: do not ask for cloud models."
+        system += (
+            " PERSONAL_LOCAL_ONLY is on: do not ask for cloud models. "
+            "For repo questions, use the workspace brief above and conversation history."
+        )
     local_reply = ""
     try:
-        local_reply = _ollama_chat(message, system)
+        local_reply = _ollama_chat(message, system, history=prior)
     except Exception as e:  # noqa: BLE001
         local_reply = f"(local model unavailable: {e})"
         escalated = True
     else:
-        escalated = _should_escalate(message, local_reply)
+        escalated = _should_escalate(message, local_reply, history=prior)
 
     cloud_reply = ""
     provider = ""
@@ -1631,6 +1728,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/chat":
             user = self._current_user()
             email = None if _is_open_user(user) else user
+            hist = data.get("history")
             return self._send(
                 *json_response(
                     handle_chat(
@@ -1638,6 +1736,7 @@ class Handler(BaseHTTPRequestHandler):
                         seed_notion=str(data.get("seed_notion", "1")).lower()
                         not in ("0", "false", "no"),
                         email=email,
+                        history=hist if isinstance(hist, list) else None,
                     )
                 )
             )

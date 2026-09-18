@@ -100,8 +100,8 @@ Mutating actions require a session token injected into the page (CSRF guard).
 The dashboard chat box talks to the **local** Ollama model first (free all day on the Jetson).
 
 1. You type an instruction (locally, Tailscale, or private domain after login).
-2. Local model answers when it can.
-3. If it cannot (says `ESCALATE:`, errors, or the ask is clearly too big), Hawkeye/Autocode forwards to **Cursor Cloud Agents API → Grok Bot webhook**, then optional API keys.
+2. Local model answers when it can (with **conversation history** + a short Hawkeye workspace brief — it already knows `https://github.com/brandonbrown15/Hawkeye`).
+3. If it cannot (says `ESCALATE:`, stalls asking for a URL you already gave, or you ask for a full repo review), Hawkeye forwards to **Cursor Cloud Agents API → Grok Bot webhook**, then optional API keys.
 4. Optional checkbox: seed useful follow-ups into the Notion Ready checklist.
 
 Set `CURSOR_API_KEY` (Cursor Dashboard → API Keys) for premium Cursor handoff. Optional: `CURSOR_REPOSITORY` for coding agents, or `CURSOR_WEBHOOK_URL` for a custom bridge. Also optional: `GROK_BOT_WEBHOOK_URL`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, or `XAI_API_KEY`.
