@@ -326,6 +326,8 @@ class UiHelpersTests(unittest.TestCase):
         self.assertTrue(out["ok"])
         self.assertEqual(out["local_reply"], "OK — coder is awake")
         self.assertEqual(calls["n"], 2)
+
+    def test_chat_history_passed_to_ollama(self) -> None:
         os.environ["AUTOCODE_PERSONAL_LOCAL_ONLY"] = "1"
         captured: dict = {}
 
