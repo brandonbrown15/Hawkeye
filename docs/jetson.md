@@ -41,11 +41,12 @@ source .env   # or: export OLLAMA_MODELS=… from .env
 ./ollama/prepare_jetson_memory.sh
 ./ollama/ensure_ollama.sh --restart
 ./ollama/create_coder_64k.sh
-# Orin Nano: defaults to qwen2.5-coder:1.5b + 4k ctx.
-# Still OOM? CPU-only:
-#   OLLAMA_NUM_GPU=0 BASE_MODEL=qwen2.5-coder:1.5b OLLAMA_NUM_CTX=4096 ./ollama/create_coder_64k.sh
+# Orin Nano: defaults to qwen2.5-coder:3b + 4k ctx.
+# Still OOM? try 1.5b or CPU-only:
+#   BASE_MODEL=qwen2.5-coder:1.5b OLLAMA_NUM_CTX=4096 ./ollama/create_coder_64k.sh
+#   OLLAMA_NUM_GPU=0 BASE_MODEL=qwen2.5-coder:3b OLLAMA_NUM_CTX=4096 ./ollama/create_coder_64k.sh
 # Prove: ollama run coder-64k OK
-# Free disk: ollama rm qwen2.5-coder:7b qwen2.5-coder:3b
+# Free disk: ollama rm qwen2.5-coder:7b qwen2.5-coder:1.5b
 
 # 3) Hermes config (writes under HERMES_CONFIG_DIR from .env)
 ./hermes/configure_local_primary.sh
@@ -157,7 +158,7 @@ See [accounts.md](accounts.md).
 - Smoke `/api/chat` (tiny `num_ctx` first)
 - Boot auto-start: `./scripts/install_hawkeye_autostart.sh` (UI + Ollama; tunnel when configured)
 
-**Gotcha:** Orin Nano **8GB** often cannot load `7b` or even `3b` (`cudaMalloc failed`). Default is **`qwen2.5-coder:1.5b`**. Last resort: `OLLAMA_NUM_GPU=0` (CPU). Run `./ollama/prepare_jetson_memory.sh` before chat smoke.
+**Gotcha:** Orin Nano **8GB** often cannot load `7b` (`cudaMalloc failed`). Default is **`qwen2.5-coder:3b` @ 4k ctx**. If that OOMs under load, fall back to `1.5b` or `OLLAMA_NUM_GPU=0` (CPU). Run `./ollama/prepare_jetson_memory.sh` before chat smoke.
 
 **Gotcha:** Listing models is not enough — chat needs `/usr/local/lib/ollama/llama-server`. If smoke returns `llama-server binary not found`, re-run `./ollama/install_ollama_jetson.sh`.
 
