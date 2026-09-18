@@ -123,29 +123,33 @@ fi
 CURSOR_CMD="${AUTOCODE_CURSOR_DELEGATE_CMD:-}"
 GROK_CMD="${AUTOCODE_GROK_DELEGATE_CMD:-}"
 LOCAL_ONLY="${AUTOCODE_LOCAL_ONLY:-0}"
-if [[ -n "$CURSOR_CMD" ]]; then
+if [[ -n "${CURSOR_API_KEY:-}" ]]; then
+  pass "CURSOR_API_KEY set (Cloud Agents API)"
+elif [[ -n "$CURSOR_CMD" ]]; then
   if [[ "$CURSOR_CMD" == *stub* ]]; then
     if [[ "$LOCAL_ONLY" == "1" ]]; then
       warn_msg "Cursor delegate is stub (ok with AUTOCODE_LOCAL_ONLY=1)"
     else
-      warn_msg "Cursor delegate is stub — set CURSOR_WEBHOOK_URL + ./scripts/delegate_cursor.sh"
+      warn_msg "Cursor delegate is stub — set CURSOR_API_KEY or CURSOR_WEBHOOK_URL"
     fi
   else
     pass "AUTOCODE_CURSOR_DELEGATE_CMD set"
   fi
 else
   if [[ "$LOCAL_ONLY" == "1" ]]; then
-    warn_msg "Cursor delegate unset (ok with AUTOCODE_LOCAL_ONLY=1)"
+    warn_msg "Cursor unset (ok with AUTOCODE_LOCAL_ONLY=1)"
   else
-    warn_msg "Cursor delegate unset — cloud Cursor escalations will fall through"
+    warn_msg "Cursor unset — set CURSOR_API_KEY (Dashboard → API Keys) for Cloud Agents"
   fi
 fi
-if [[ -n "${CURSOR_WEBHOOK_URL:-}" ]]; then
-  pass "CURSOR_WEBHOOK_URL set"
+if [[ -n "${CURSOR_API_KEY:-}" ]]; then
+  :
+elif [[ -n "${CURSOR_WEBHOOK_URL:-}" ]]; then
+  pass "CURSOR_WEBHOOK_URL set (custom bridge)"
 elif [[ -n "$CURSOR_CMD" && "$CURSOR_CMD" != *stub* ]]; then
-  warn_msg "CURSOR_WEBHOOK_URL empty (ok if custom launcher needs no URL)"
+  warn_msg "CURSOR_API_KEY / CURSOR_WEBHOOK_URL empty (ok if custom launcher needs none)"
 elif [[ "$LOCAL_ONLY" == "1" ]]; then
-  pass "CURSOR_WEBHOOK_URL optional (AUTOCODE_LOCAL_ONLY=1)"
+  pass "Cursor cloud optional (AUTOCODE_LOCAL_ONLY=1)"
 fi
 
 if [[ -n "$GROK_CMD" ]]; then

@@ -15,7 +15,7 @@ Notion Build Queue (Ready tasks)
         │
         └─ hard / failed local ──► escalate
                  │
-                 ├─ Cursor Cloud   (webhook JSON POST)
+                 ├─ Cursor Cloud   (Cloud Agents API / optional webhook)
                  ├─ Grok Bot       (webhook JSON POST)
                  ├─ Claude API     (direct HTTPS, optional)
                  └─ Human          (Notion Escalation Log)
@@ -37,8 +37,10 @@ Hermes does **not** call Cursor or Grok. It only sees local Ollama.
 If the task is hard, cloud-only, or local Hermes fails twice:
 
 1. Orchestrator writes a JSON handoff file under `state/delegates/`
-2. It runs a shell command with `AUTOCODE_DELEGATE_PAYLOAD` pointing at that file:
-   - Cursor → `scripts/delegate_cursor.sh` → `POST $CURSOR_WEBHOOK_URL`
+2. It launches Cursor via the **Cloud Agents API** when `CURSOR_API_KEY` is set
+   (`integrations/cursor_cloud.py` → `POST https://api.cursor.com/v1/agents`),
+   or runs a shell command with `AUTOCODE_DELEGATE_PAYLOAD`:
+   - Cursor → `scripts/delegate_cursor.sh` (API key preferred, else webhook bridge)
    - Grok Bot → `scripts/delegate_grok.sh` → `POST $GROK_BOT_WEBHOOK_URL`
    - Claude → Anthropic HTTP API (if `ANTHROPIC_API_KEY` set)
 3. Result is logged back to Notion (Agent Runs / Escalation Log)
@@ -48,7 +50,7 @@ If the task is hard, cloud-only, or local Hermes fails twice:
 | Prefer first | Who | How |
 |--------------|-----|-----|
 | 1 | Local Hermes + Ollama | CLI |
-| 2 | Cursor Cloud | webhook |
+| 2 | Cursor Cloud | API (`CURSOR_API_KEY`) |
 | 3 | Grok Bot | webhook |
 | 4 | Human | Notion only |
 

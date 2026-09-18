@@ -36,6 +36,7 @@ class UiHelpersTests(unittest.TestCase):
             "AUTOCODE_LOCAL_ONLY",
             "AUTOCODE_PRODUCT_NAME",
             "CURSOR_WEBHOOK_URL",
+            "CURSOR_API_KEY",
             "GROK_BOT_WEBHOOK_URL",
             "HAWKEYE_USERS_FILE",
             "HAWKEYE_ALLOWED_EMAIL_DOMAIN",
@@ -307,6 +308,7 @@ class UiHelpersTests(unittest.TestCase):
 
     def test_chat_escalates_to_cursor_webhook(self) -> None:
         os.environ["CURSOR_WEBHOOK_URL"] = "http://example.invalid/cursor"
+        os.environ.pop("CURSOR_API_KEY", None)
         os.environ["AUTOCODE_PERSONAL_LOCAL_ONLY"] = "0"
 
         with mock.patch.object(ui_server, "_ollama_chat", return_value="ESCALATE: too hard"):
@@ -318,9 +320,27 @@ class UiHelpersTests(unittest.TestCase):
         self.assertEqual(out["cloud_reply"], "premium plan")
         wh.assert_called_once()
 
+    def test_chat_escalates_to_cursor_api_key(self) -> None:
+        os.environ["CURSOR_API_KEY"] = "test-cursor-key"
+        os.environ.pop("CURSOR_WEBHOOK_URL", None)
+        os.environ["AUTOCODE_PERSONAL_LOCAL_ONLY"] = "0"
+
+        with mock.patch.object(ui_server, "_ollama_chat", return_value="ESCALATE: too hard"):
+            with mock.patch(
+                "integrations.cursor_cloud.escalate_chat",
+                return_value="Cloud agent: https://cursor.com/agents/bc-1",
+            ) as api:
+                out = ui_server.handle_chat("redesign the multi-service architecture", seed_notion=False)
+        self.assertTrue(out["ok"])
+        self.assertTrue(out["escalated"])
+        self.assertEqual(out["provider"], "Cursor")
+        self.assertIn("cursor.com/agents", out["cloud_reply"])
+        api.assert_called_once()
+
     def test_chat_local_only_skips_cloud(self) -> None:
         os.environ["AUTOCODE_PERSONAL_LOCAL_ONLY"] = "1"
         os.environ["CURSOR_WEBHOOK_URL"] = "http://example.invalid/cursor"
+        os.environ.pop("CURSOR_API_KEY", None)
         with mock.patch.object(ui_server, "_ollama_chat", return_value="ESCALATE: nope"):
             with mock.patch.object(ui_server, "_cloud_chat") as cloud:
                 out = ui_server.handle_chat("hard thing", seed_notion=False)
@@ -331,6 +351,7 @@ class UiHelpersTests(unittest.TestCase):
     def test_runtime_local_only_toggle_overrides_env(self) -> None:
         os.environ["AUTOCODE_PERSONAL_LOCAL_ONLY"] = "0"
         os.environ["CURSOR_WEBHOOK_URL"] = "http://example.invalid/cursor"
+        os.environ.pop("CURSOR_API_KEY", None)
         brandon = "brandon@brownhawke.engineering"
         mark = "mark@brownhawke.engineering"
         self.assertFalse(ui_auth.personal_local_only(brandon))

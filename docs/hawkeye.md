@@ -41,7 +41,9 @@ AUTOCODE_PERSONAL_LOCAL_ONLY=0
 AUTOCODE_LOCAL_ONLY=0
 AUTOCODE_COST_PROFILE=cursor-grok
 AUTOCODE_CLOUD_PREFERENCE=cursor
-CURSOR_WEBHOOK_URL=https://…
+CURSOR_API_KEY=…
+CURSOR_REPOSITORY=https://github.com/brandonbrown15/Hawkeye
+# CURSOR_WEBHOOK_URL=https://…      # optional custom bridge only
 GROK_BOT_WEBHOOK_URL=https://…
 AUTOCODE_UI_REMOTE=1
 AUTOCODE_PUBLIC_HOST=hawkeye.brownhawke.engineering
@@ -157,6 +159,8 @@ Same Notion autopilot / continuous drain as Autocode when you enable those flags
 | `AUTOCODE_PERSONAL_LOCAL_ONLY` | `0` | Default when a user has no UI override; `1` = never call Cursor/Grok |
 | `AUTOCODE_LOCAL_ONLY` | `0` | Task router / overnight: allow cloud delegates |
 | `HAWKEYE_RUNTIME_FILE` | `state/hawkeye-runtime.json` | Per-user UI toggles (`users.<email>.personal_local_only`) |
-| `CURSOR_WEBHOOK_URL` | | Premium escalate |
+| `CURSOR_API_KEY` | | Cursor Dashboard API key → Cloud Agents escalate |
+| `CURSOR_REPOSITORY` | | Optional default GitHub repo for coding agents |
+| `CURSOR_WEBHOOK_URL` | | Optional custom escalate bridge |
 | `GROK_BOT_WEBHOOK_URL` | | Premium escalate |
 | `AUTOCODE_UI_SECURE` | `0` | Force Secure cookies |
