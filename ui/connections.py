@@ -146,23 +146,29 @@ def _encrypt_secret(value: str) -> str:
     value = (value or "").strip()
     if not value:
         return ""
+    key = _secrets_key()
+    if key is None:
+        raise ValueError(
+            "Set HAWKEYE_MEMORY_KEY (Account → Machine) before saving connection secrets. "
+            "Plaintext secret storage is not allowed."
+        )
     try:
         from memory import crypto
 
-        key = _secrets_key()
-        if key is None:
-            return "plain:" + value
         return crypto.encode_record({"v": value}, key)
-    except Exception:  # noqa: BLE001
-        return "plain:" + value
+    except ValueError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        raise ValueError(f"Could not encrypt secret: {e}") from e
 
 
 def _decrypt_secret(blob: str) -> str:
     blob = (blob or "").strip()
     if not blob:
         return ""
+    # Legacy plaintext blobs are never returned — re-save after setting MEMORY_KEY.
     if blob.startswith("plain:"):
-        return blob[6:]
+        return ""
     try:
         from memory import crypto
 

@@ -980,8 +980,11 @@ def main() -> None:
         mock_ws.mkdir(parents=True, exist_ok=True)
         os.environ["WORKSPACE_ROOT"] = str(mock_ws)
     else:
-        if not os.environ.get("NOTION_TOKEN"):
-            raise SystemExit("NOTION_TOKEN required (or pass --mock)")
+        if not notion.resolve_notion_token():
+            raise SystemExit(
+                "Notion token required — Account → Connections → Notion "
+                "or NOTION_TOKEN in .env (or pass --mock)"
+            )
         sink = NotionSink()
 
     if not args.skip_health_feed and not args.dry_run:

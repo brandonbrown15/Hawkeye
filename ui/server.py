@@ -664,12 +664,25 @@ def _persist_memory(
         return None
 
 
-def handle_chat(message: str, seed_notion: bool = True, *, email: str | None = None) -> dict[str, Any]:
+def _is_open_user(user: str | None) -> bool:
+    return not user or user in ("open@local", runtime.OPEN_USER)
+
+
+def handle_chat(
+    message: str,
+    seed_notion: bool = True,
+    *,
+    email: str | None = None,
+    user: str | None = None,
+) -> dict[str, Any]:
     message = (message or "").strip()
     if not message:
         return {"ok": False, "error": "message required"}
     from ui import connections
 
+    email = email if email is not None else user
+    if _is_open_user(email):
+        email = None
     connections.set_request_user(email)
     stay_local = ui_auth.personal_local_only(email)
     name = ui_auth.product_name()
@@ -975,14 +988,6 @@ class Handler(BaseHTTPRequestHandler):
     def _session_token(self) -> str | None:
         return ui_auth.parse_session_cookie(self.headers.get("Cookie"))
 
-    def _current_user(self) -> str | None:
-        user = ui_auth.session_user(self._session_token())
-        if user:
-            return user
-        if not ui_auth.private_mode_enabled():
-            return "open@local"
-        return None
-
     def _require_user(self) -> str | None:
         user = self._current_user()
         if user:
@@ -1025,7 +1030,7 @@ class Handler(BaseHTTPRequestHandler):
             from ui import connections
 
             user = self._current_user()
-            if user and user != "open@local":
+            if user and not _is_open_user(user):
                 connections.set_request_user(user)
             else:
                 connections.set_request_user(None)
@@ -1065,14 +1070,14 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/auth":
             user = self._current_user() if self._authed() or not ui_auth.private_mode_enabled() else None
             profile = None
-            if user and user != "open@local":
+            if user and not _is_open_user(user):
                 try:
                     from ui import accounts
 
                     profile = accounts.get_profile(user)
                 except Exception:  # noqa: BLE001
                     profile = None
-            auth_user = None if (not user or user in ("open@local", runtime.OPEN_USER)) else user
+            auth_user = None if _is_open_user(user) else user
             return self._send(
                 *json_response(
                     {
@@ -1523,7 +1528,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/chat":
             user = self._current_user()
-            email = user if user and user != "open@local" else None
+            email = None if _is_open_user(user) else user
             return self._send(
                 *json_response(
                     handle_chat(

@@ -130,7 +130,7 @@ See [accounts.md](accounts.md).
 
 ### Keep the Jetson up to date (auto-update)
 `./scripts/install_hawkeye_autostart.sh` enables `hawkeye-update.timer` (every 5 minutes):
-- `git fetch` + fast-forward pull of `HAWKEYE_UPDATE_BRANCH` (default: **current branch**)
+- `git fetch` + fast-forward pull of `HAWKEYE_UPDATE_BRANCH` (default: **main**)
 - Recreate `coder-64k` when Modelfile changes
 - Restart `hawkeye-ui` so laptop UI changes land on the Orin without SSH
 
