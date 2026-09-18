@@ -167,16 +167,27 @@ def readiness(*, user: str | None = None) -> dict[str, Any]:
             "id": "hub",
             "label": "Notion hub / DBs",
             "ok": has_env("NOTION_BUILD_QUEUE_DB") or has_env("NOTION_HUB_PAGE"),
-            "hint": "Share Autocode Hub page",
+            "hint": "Account → Machine → Notion hub page id (Hawkeye page) or set NOTION_HUB_PAGE in .env",
         },
         {
             "id": "github",
             "label": "GitHub token",
             "ok": _ready_secret("github", "token") or gh_authed(),
-            "hint": "Account → Connections → GitHub (or ./scripts/auth_github.sh)",
+            "hint": "Account → Connections → GitHub (needed for auto-update HTTPS fetch)",
         },
-        {"id": "hermes", "label": "Hermes CLI", "ok": hermes_ok, "hint": "./hermes/install_hermes.sh"},
-        {"id": "ollama", "label": f"Ollama ({model})", "ok": ollama_ok, "hint": "./ollama/install_ollama_jetson.sh"},
+        {
+            "id": "hermes",
+            "label": "Hermes CLI",
+            "ok": hermes_ok,
+            "hint": "Optional for chat — only overnight coding. ./hermes/install_hermes.sh",
+            "optional": True,
+        },
+        {
+            "id": "ollama",
+            "label": f"Ollama ({model})",
+            "ok": ollama_ok,
+            "hint": "Account → Machine → Wake Ollama (daemon down) — not a full reinstall",
+        },
         {
             "id": "cursor",
             "label": "Cursor Cloud",
@@ -186,7 +197,7 @@ def readiness(*, user: str | None = None) -> dict[str, Any]:
                 _ready_secret("cursor", "webhook_url")
                 and "stub" not in cursor_cmd
             ),
-            "hint": "Account → Connections → Cursor API key (or webhook bridge)",
+            "hint": "Account → Connections → Cursor API key (Dashboard → API Keys)",
             "optional": True,
         },
         {

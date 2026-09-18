@@ -77,13 +77,17 @@
         <div id="connectionsList" class="connections-list"></div>
       </section>
       <section class="account-pane" data-pane="machine">
-        <p class="section-note">Jetson-wide settings: Cloudflare tunnel install token, encryption key, and GitHub auto-update. Changes write to the machine `.env` and keep services running via autostart.</p>
+        <p class="section-note">Jetson-wide settings: Cloudflare tunnel install token, encryption key, Notion hub, and GitHub auto-update. Changes write to the machine `.env` and keep services running via autostart.</p>
         <p class="meta" id="machineStatusNote"></p>
         <label for="machTunnel">Cloudflare Tunnel install token</label>
         <input id="machTunnel" type="password" autocomplete="off" placeholder="(saved — enter to replace)" />
         <label for="machMemKey">HAWKEYE_MEMORY_KEY (encrypt secrets + memory)</label>
         <input id="machMemKey" type="password" autocomplete="off" placeholder="(set once — enter to set/rotate)" />
         <label class="inline-check"><input type="checkbox" id="machForceMem" /> Rotate memory key even if already set</label>
+        <label for="machNotionHub">Notion hub page id (Hawkeye / Autocode Hub)</label>
+        <input id="machNotionHub" placeholder="Paste page URL or UUID — share page with integration first" />
+        <label for="machNotionBq">Notion Build Queue DB id (optional if you provision)</label>
+        <input id="machNotionBq" placeholder="Leave blank and click Provision Notion DBs" />
         <label for="machBranch">Auto-update branch</label>
         <input id="machBranch" placeholder="main or cursor/hawkeye-…" />
         <label class="inline-check"><input type="checkbox" id="machUpdateOn" checked /> Pull GitHub every 5 minutes + restart UI</label>
@@ -91,6 +95,7 @@
         <input id="machHost" placeholder="hawkeye.brownhawke.engineering" />
         <div class="conn-actions">
           <button type="button" class="btn primary compact" id="machSave">Save machine settings</button>
+          <button type="button" class="btn compact" id="machProvisionNotion">Provision Notion DBs</button>
           <button type="button" class="btn compact" id="machForceUpdate">Force update now</button>
           <button type="button" class="btn compact" id="machWakeOllama">Wake Ollama</button>
         </div>

@@ -713,6 +713,8 @@
     const bits = [
       data.tunnel_token_set ? "tunnel token set" : "tunnel token missing",
       data.encryption_ready ? "encryption ready" : "set memory key",
+      data.notion_hub_page_set ? "Notion hub set" : "Notion hub missing",
+      auto.github_token_ready ? "GitHub token ready" : "GitHub token missing",
       auto.timer_active ? "update timer active" : "update timer inactive",
       auto.ui_active ? "UI service up" : "UI service down",
       auto.tunnel_active ? "tunnel up" : "tunnel down",
@@ -720,15 +722,25 @@
       `branch ${auto.update_branch || "?"}`,
     ];
     note.textContent = bits.join(" · ");
-    if (auto.update_check) {
+    const logText =
+      data.force_update_log ||
+      data.provision_notion_log ||
+      (data.ollama && data.ollama.log) ||
+      auto.update_check ||
+      "";
+    if (logText) {
       log.hidden = false;
-      log.textContent = auto.update_check;
+      log.textContent = logText;
     }
     const branch = document.getElementById("machBranch");
     const host = document.getElementById("machHost");
     const on = document.getElementById("machUpdateOn");
+    const hub = document.getElementById("machNotionHub");
+    const bq = document.getElementById("machNotionBq");
     if (branch && !branch.dataset.touched) branch.value = auto.update_branch || "";
     if (host && !host.dataset.touched) host.value = data.public_host || "";
+    if (hub && !hub.dataset.touched) hub.value = data.notion_hub_page || "";
+    if (bq && !bq.dataset.touched) bq.value = data.notion_build_queue_db || "";
     if (on) on.checked = !!auto.update_enabled;
     const tunnel = document.getElementById("machTunnel");
     if (tunnel) tunnel.placeholder = data.tunnel_token_set ? "(saved — enter to replace)" : "Paste Cloudflare install token";
@@ -979,7 +991,7 @@
     });
   }
 
-  ["machBranch", "machHost"].forEach((id) => {
+  ["machBranch", "machHost", "machNotionHub", "machNotionBq"].forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.addEventListener("input", () => { el.dataset.touched = "1"; });
   });
@@ -991,6 +1003,8 @@
         update_enabled: document.getElementById("machUpdateOn")?.checked ? "1" : "0",
         update_branch: document.getElementById("machBranch")?.value || "",
         public_host: document.getElementById("machHost")?.value || "",
+        notion_hub_page: document.getElementById("machNotionHub")?.value || "",
+        notion_build_queue_db: document.getElementById("machNotionBq")?.value || "",
         restart_tunnel: "1",
       };
       const tunnel = document.getElementById("machTunnel")?.value?.trim();
@@ -1008,6 +1022,26 @@
         renderMachine(out);
       } catch (e) {
         toast(String(e.message || e));
+      }
+    });
+  }
+
+  const machProvision = document.getElementById("machProvisionNotion");
+  if (machProvision) {
+    machProvision.addEventListener("click", async () => {
+      try {
+        toast("Provisioning Notion DBs under hub page…");
+        machProvision.disabled = true;
+        const hub = document.getElementById("machNotionHub")?.value?.trim();
+        const body = { provision_notion: "1" };
+        if (hub) body.notion_hub_page = hub;
+        const out = await post("/api/machine", body);
+        toast("Notion DBs provisioned");
+        renderMachine(out);
+      } catch (e) {
+        toast(String(e.message || e));
+      } finally {
+        machProvision.disabled = false;
       }
     });
   }
