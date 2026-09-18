@@ -46,6 +46,7 @@ mkdir -p "$LOG_DIR" "$STATE_DIR"
 LOG="$LOG_DIR/self-update.log"
 LOCK="$STATE_DIR/self-update.lock"
 MODELFILE_HASH="$STATE_DIR/coder-64k.modelfile.sha256"
+MODEL_PIN_HASH="$STATE_DIR/coder-64k.base-pin.sha256"
 
 log() {
   local line="[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*"
@@ -149,23 +150,42 @@ if command -v ollama >/dev/null 2>&1; then
   curl -fsS "http://${OLLAMA_HOST:-127.0.0.1:11434}/api/tags" >/dev/null 2>&1 || true
 fi
 
-# Rebuild coder-64k when Modelfile changed (or first run after enable).
+# Rebuild coder-64k when Modelfile or BASE_MODEL / ctx pin changed.
 MODELFILE="$ROOT/ollama/Modelfile.coder-64k"
 if [[ "$RECREATE_MODEL" == "1" && -f "$MODELFILE" ]] && command -v ollama >/dev/null 2>&1; then
+  # shellcheck disable=SC1091
+  [[ -f "$ROOT/.env" ]] && set -a && source "$ROOT/.env" && set +a
+  pin_base="$(bash "$ROOT/ollama/default_base_model.sh")"
+  pin_ctx="$(bash "$ROOT/ollama/default_num_ctx.sh")"
   new_hash="$(sha256sum "$MODELFILE" | awk '{print $1}')"
+  new_pin="$(printf '%s\n%s\n' "$pin_base" "$pin_ctx" | sha256sum | awk '{print $1}')"
   old_hash=""
+  old_pin=""
   [[ -f "$MODELFILE_HASH" ]] && old_hash="$(cat "$MODELFILE_HASH" 2>/dev/null || true)"
-  if [[ "$UPDATED" -eq 1 && "$new_hash" != "$old_hash" ]] || [[ "$FORCE" -eq 1 && ! -f "$MODELFILE_HASH" ]]; then
-    log "Modelfile changed — recreating coder-64k"
+  [[ -f "$MODEL_PIN_HASH" ]] && old_pin="$(cat "$MODEL_PIN_HASH" 2>/dev/null || true)"
+  need_model=0
+  if [[ "$UPDATED" -eq 1 && "$new_hash" != "$old_hash" ]]; then
+    need_model=1
+    log "Modelfile changed — recreating coder-64k ($pin_base @ ${pin_ctx})"
+  elif [[ "$new_pin" != "$old_pin" ]]; then
+    need_model=1
+    log "BASE_MODEL/ctx pin changed ($old_pin → $new_pin) — recreating coder-64k ($pin_base @ ${pin_ctx})"
+  elif [[ "$FORCE" -eq 1 && ! -f "$MODELFILE_HASH" ]]; then
+    need_model=1
+    log "Force recreate coder-64k ($pin_base @ ${pin_ctx})"
+  fi
+  if [[ "$need_model" -eq 1 ]]; then
     if bash "$ROOT/ollama/create_coder_64k.sh"; then
       echo "$new_hash" >"$MODELFILE_HASH"
-      log "coder-64k ready"
+      echo "$new_pin" >"$MODEL_PIN_HASH"
+      log "coder-64k ready ($pin_base)"
     else
       log "WARN: create_coder_64k.sh failed — UI will still restart"
     fi
-  elif [[ "$new_hash" != "$old_hash" && -z "$old_hash" ]]; then
-    # First successful track of hash without forcing a rebuild if model already exists.
+  elif [[ -z "$old_hash" || -z "$old_pin" ]]; then
+    # First successful track without forcing a rebuild if model already exists.
     echo "$new_hash" >"$MODELFILE_HASH"
+    echo "$new_pin" >"$MODEL_PIN_HASH"
   fi
 fi
 

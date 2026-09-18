@@ -28,15 +28,18 @@ if [[ -f "$ENV_FILE" ]]; then
     if ! grep -q '^BASE_MODEL=' "$ENV_FILE" 2>/dev/null; then
       echo "BASE_MODEL=${BASE_MODEL}" >>"$ENV_FILE"
       echo "Updated .env BASE_MODEL=${BASE_MODEL}"
-    elif grep -Eq '^BASE_MODEL=qwen2.5-coder:(7b|3b)$' "$ENV_FILE" 2>/dev/null \
-      && tr -d '\0' </proc/device-tree/model 2>/dev/null | grep -qi 'orin nano'; then
-      # Orin Nano: upgrade stored 7b/3b default down to 1.5b unless user forced via env this run
-      if [[ -z "${BASE_MODEL_FORCE:-}" ]]; then
+    elif tr -d '\0' </proc/device-tree/model 2>/dev/null | grep -qi 'orin nano'; then
+      # Orin Nano: keep 3b as the supported default.
+      # - Upgrade legacy 1.5b pins to 3b (unless BASE_MODEL_FORCE keeps current)
+      # - Downgrade 7b → 3b (7b usually CUDA-OOMs on 8GB)
+      # Never silently replace an explicit 3b (or BASE_MODEL_FORCE) pin.
+      if [[ -z "${BASE_MODEL_FORCE:-}" ]] \
+        && grep -Eq '^BASE_MODEL=qwen2.5-coder:(1\.5b|7b)$' "$ENV_FILE" 2>/dev/null; then
         grep -v '^BASE_MODEL=' "$ENV_FILE" >"${ENV_FILE}.tmp" || true
         mv "${ENV_FILE}.tmp" "$ENV_FILE"
-        BASE_MODEL="qwen2.5-coder:1.5b"
+        BASE_MODEL="qwen2.5-coder:3b"
         echo "BASE_MODEL=${BASE_MODEL}" >>"$ENV_FILE"
-        echo "Updated .env BASE_MODEL=${BASE_MODEL} (Orin Nano CUDA-OOM safe)"
+        echo "Updated .env BASE_MODEL=${BASE_MODEL} (Orin Nano default)"
       fi
     fi
   fi
@@ -110,7 +113,7 @@ else
     echo "  1) Free mem:  ./ollama/prepare_jetson_memory.sh"
     echo "     systemctl --user stop hawkeye-ui.service 2>/dev/null || true"
     echo "  2) Smaller:   BASE_MODEL=qwen2.5-coder:1.5b OLLAMA_NUM_CTX=4096 ./ollama/create_coder_64k.sh"
-    echo "  3) CPU-only:  OLLAMA_NUM_GPU=0 BASE_MODEL=qwen2.5-coder:1.5b OLLAMA_NUM_CTX=4096 ./ollama/create_coder_64k.sh"
+    echo "  3) CPU-only:  OLLAMA_NUM_GPU=0 BASE_MODEL=qwen2.5-coder:3b OLLAMA_NUM_CTX=4096 ./ollama/create_coder_64k.sh"
     echo "     (slow, but reliable when GPU memory is exhausted)"
   else
     echo "  Check: logs/ollama-serve.log"

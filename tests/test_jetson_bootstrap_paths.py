@@ -54,6 +54,16 @@ class ResolveWorkspaceRootTests(unittest.TestCase):
             text=True,
         ).strip()
         self.assertEqual(out, "qwen2.5-coder:3b")
+        text = script.read_text(encoding="utf-8")
+        self.assertIn("qwen2.5-coder:3b", text)
+        # Orin Nano default must stay on 3b (not silently force 1.5b).
+        self.assertNotIn('echo "qwen2.5-coder:1.5b"', text)
+
+    def test_create_coder_keeps_orin_3b_pin(self) -> None:
+        script = (ROOT / "ollama" / "create_coder_64k.sh").read_text(encoding="utf-8")
+        self.assertIn("qwen2.5-coder:3b", script)
+        self.assertNotIn("down to 1.5b", script)
+        self.assertIn("Orin Nano default", script)
 
 
 if __name__ == "__main__":
