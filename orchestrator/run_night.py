@@ -590,6 +590,30 @@ def invoke_cloud_delegate(
         )
 
     custom = os.environ.get("AUTOCODE_CURSOR_DELEGATE_CMD", "").strip()
+    cursor_key = os.environ.get("CURSOR_API_KEY", "").strip()
+    if target == "Cursor Cloud" and cursor_key and (
+        not custom or "stub" in custom or custom.endswith("delegate_cursor.sh")
+    ):
+        # Native Cloud Agents API (preferred over webhook-only shell when key is set).
+        try:
+            from integrations import cursor_cloud
+
+            payload = json.loads(payload_path.read_text(encoding="utf-8"))
+            out = cursor_cloud.delegate_from_payload(cursor_key, payload)
+            summary = (
+                f"Delegated to Cursor Cloud Agent {out.get('url')}; "
+                f"status={out.get('status')}; {payload_path}"
+            )
+            return RunResult(
+                outcome="Escalated",
+                summary=summary,
+                model_used="Cursor",
+                escalated_to=target,
+                why=why,
+            )
+        except Exception as e:  # noqa: BLE001
+            context = f"{context}\nCursor Cloud API failed: {e}"
+
     if target == "Cursor Cloud" and custom:
         try:
             subprocess.run(

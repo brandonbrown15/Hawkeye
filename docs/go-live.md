@@ -86,10 +86,10 @@ Handled by `./scripts/bootstrap_jetson.sh` (also run from `go_live.sh`).
 
 | Target | Env | Script |
 |--------|-----|--------|
-| Cursor Cloud | `CURSOR_WEBHOOK_URL` | `./scripts/delegate_cursor.sh` |
+| Cursor Cloud | `CURSOR_API_KEY` (preferred) or `CURSOR_WEBHOOK_URL` | `./scripts/delegate_cursor.sh` |
 | Grok Bot | `GROK_BOT_WEBHOOK_URL` | `./scripts/delegate_grok.sh` |
 
-Use `--local-only` until these are set. Scripts **fail honestly** if a URL is missing when cloud escalate is chosen.
+Use `--local-only` until these are set. Scripts **fail honestly** if the API key / URL is missing when cloud escalate is chosen.
 
 ### F. Remote ops
 

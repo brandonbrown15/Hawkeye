@@ -29,7 +29,7 @@ Stored in `$AUTOCODE_DATA_ROOT/hawkeye/accounts/profiles.json` (or `state/hawkey
 | Cloudflare | API token (+ optional account id) |
 | Notion | Integration / OAuth token |
 | GitHub | PAT |
-| Cursor | API key / webhook URL + token |
+| Cursor | **API key** (Dashboard → API Keys) + optional repository URL; webhook URL only for a custom bridge |
 | Claude | Anthropic API key |
 | ChatGPT / Codex | OpenAI API key (+ optional org id) |
 | Grok Bot / xAI | Webhook URL + token and/or xAI API key |

@@ -6,7 +6,7 @@ Before enabling unattended cron:
 
 1. Run `./scripts/bootstrap_jetson.sh` + `./scripts/doctor.sh` (no FAILs).
 2. Confirm Phases 0–2 green (SSH, Ollama coder model, Hermes smoke, Telegram ping).
-3. Set `CURSOR_WEBHOOK_URL` / `GROK_BOT_WEBHOOK_URL` and use `delegate_cursor.sh` / `delegate_grok.sh` (not stubs).
+3. Set `CURSOR_API_KEY` (and optionally `GROK_BOT_WEBHOOK_URL`) and use `delegate_cursor.sh` / `delegate_grok.sh` (not stubs).
 4. Put **one** tiny Ready + Local-safe task in Build Queue.
 5. Stay nearby and run: `./cron/overnight_run.sh --force`
 6. Verify:

@@ -758,7 +758,8 @@
         const label = document.createElement("label");
         label.textContent = field;
         const input = document.createElement("input");
-        input.type = "password";
+        const isPublic = (p.public_fields || []).includes(field);
+        input.type = isPublic ? "text" : "password";
         input.autocomplete = "off";
         input.dataset.field = field;
         input.placeholder = p.status === "connected" ? "(saved — enter to replace)" : "";

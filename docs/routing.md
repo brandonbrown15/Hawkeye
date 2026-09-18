@@ -36,7 +36,9 @@ AUTOCODE_COST_PROFILE=cursor-grok
 AUTOCODE_CLOUD_PREFERENCE=cursor    # or grok if Bot is cheaper for you
 AUTOCODE_CURSOR_DELEGATE_CMD=./scripts/delegate_cursor.sh
 AUTOCODE_GROK_DELEGATE_CMD=./scripts/delegate_grok.sh
-CURSOR_WEBHOOK_URL=https://…        # required for live Cursor handoff
+CURSOR_API_KEY=…                    # Dashboard → API Keys (required for live Cursor)
+CURSOR_REPOSITORY=https://github.com/brandonbrown15/Hawkeye  # optional
+# CURSOR_WEBHOOK_URL=https://…      # optional custom bridge only
 GROK_BOT_WEBHOOK_URL=https://…      # required for live Grok Bot handoff
 AUTOCODE_DISABLE_METERED_GROK=1
 # Leave empty:

@@ -172,7 +172,9 @@ AUTOCODE_UI_SECURE=1
 # Escalate hard asks (recommended). Flip "Local only" in the UI header anytime
 # to force free Jetson Ollama only (persists in state/hawkeye-runtime.json).
 AUTOCODE_PERSONAL_LOCAL_ONLY=0
-CURSOR_WEBHOOK_URL=https://…
+CURSOR_API_KEY=…
+# CURSOR_REPOSITORY=https://github.com/brandonbrown15/Hawkeye
+# CURSOR_WEBHOOK_URL=https://…  # optional bridge
 GROK_BOT_WEBHOOK_URL=https://…
 
 # Notion (from connect_notion / provision)

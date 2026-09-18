@@ -101,10 +101,10 @@ The dashboard chat box talks to the **local** Ollama model first (free all day o
 
 1. You type an instruction (locally, Tailscale, or private domain after login).
 2. Local model answers when it can.
-3. If it cannot (says `ESCALATE:`, errors, or the ask is clearly too big), Hawkeye/Autocode forwards to **Cursor webhook → Grok Bot webhook**, then optional API keys.
+3. If it cannot (says `ESCALATE:`, errors, or the ask is clearly too big), Hawkeye/Autocode forwards to **Cursor Cloud Agents API → Grok Bot webhook**, then optional API keys.
 4. Optional checkbox: seed useful follow-ups into the Notion Ready checklist.
 
-Set `CURSOR_WEBHOOK_URL` and `GROK_BOT_WEBHOOK_URL` for premium handoff. Optional API keys: `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, or `XAI_API_KEY`.
+Set `CURSOR_API_KEY` (Cursor Dashboard → API Keys) for premium Cursor handoff. Optional: `CURSOR_REPOSITORY` for coding agents, or `CURSOR_WEBHOOK_URL` for a custom bridge. Also optional: `GROK_BOT_WEBHOOK_URL`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, or `XAI_API_KEY`.
 
 Use the **Local only** switch in the dashboard header to force free Jetson Ollama for chat (no Cursor/Grok). The setting is **per signed-in account** (stored under that email in `state/hawkeye-runtime.json`), so `brandon@` and `mark@` can choose independently. It overrides `AUTOCODE_PERSONAL_LOCAL_ONLY` for that user until they flip it back.
 

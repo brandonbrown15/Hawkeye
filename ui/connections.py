@@ -44,6 +44,7 @@ ENV_FALLBACKS: dict[tuple[str, str], tuple[str, ...]] = {
     ("notion", "token"): ("NOTION_TOKEN",),
     ("github", "token"): ("GITHUB_TOKEN", "GH_TOKEN"),
     ("cursor", "api_key"): ("CURSOR_API_KEY",),
+    ("cursor", "repository"): ("CURSOR_REPOSITORY", "HAWKEYE_CURSOR_REPO", "CURSOR_REPO_URL"),
     ("cursor", "webhook_url"): ("CURSOR_WEBHOOK_URL",),
     ("cursor", "webhook_token"): ("CURSOR_WEBHOOK_TOKEN", "CURSOR_API_KEY"),
     ("claude", "api_key"): ("ANTHROPIC_API_KEY",),
@@ -76,8 +77,14 @@ PROVIDER_META = {
     },
     "cursor": {
         "label": "Cursor",
-        "fields": ["api_key", "webhook_url", "webhook_token"],
-        "hint": "Cursor API key and/or Cloud Agent webhook for hard-ask escalate",
+        "fields": ["api_key", "repository", "webhook_url", "webhook_token"],
+        "connect_fields": ["api_key", "webhook_url"],
+        "public_fields": ["repository"],
+        "hint": (
+            "API key from Cursor Dashboard → API Keys (starts Cloud Agents). "
+            "Optional repository = https://github.com/org/repo for coding agents. "
+            "webhook_url is only for a custom bridge (optional)."
+        ),
     },
     "claude": {
         "label": "Claude (Anthropic)",
@@ -107,6 +114,7 @@ PROVIDER_META = {
     "telegram": {
         "label": "Telegram",
         "fields": ["bot_token", "chat_id"],
+        "public_fields": ["chat_id"],
         "hint": "Bot token + chat id for digests / alerts",
     },
 }
@@ -212,11 +220,12 @@ def list_connections(email: str) -> dict[str, Any]:
         meta = PROVIDER_META[pid]
         row = (data.get("providers") or {}).get(pid) or {}
         secrets = row.get("secrets") if isinstance(row.get("secrets"), dict) else {}
-        connected = any(bool(secrets.get(f)) for f in meta["fields"])
+        connect_fields = meta.get("connect_fields") or meta["fields"]
+        connected = any(bool(secrets.get(f)) for f in connect_fields)
         # Show machine-env fallback as "machine" so operators know autopilot still works.
         machine = False
         if not connected:
-            for field in meta["fields"]:
+            for field in connect_fields:
                 if _env_fallback(pid, field):
                     machine = True
                     break
@@ -226,6 +235,7 @@ def list_connections(email: str) -> dict[str, Any]:
             "label": meta["label"],
             "hint": meta["hint"],
             "fields": meta["fields"],
+            "public_fields": list(meta.get("public_fields") or []),
             "status": status,
             "account_label": str(row.get("account_label") or ""),
             "updated_at": row.get("updated_at"),

@@ -179,13 +179,14 @@ def readiness(*, user: str | None = None) -> dict[str, Any]:
         {"id": "ollama", "label": f"Ollama ({model})", "ok": ollama_ok, "hint": "./ollama/install_ollama_jetson.sh"},
         {
             "id": "cursor",
-            "label": "Cursor webhook",
+            "label": "Cursor Cloud",
             "ok": local_only
+            or _ready_secret("cursor", "api_key")
             or (
                 _ready_secret("cursor", "webhook_url")
                 and "stub" not in cursor_cmd
             ),
-            "hint": "Account → Connections → Cursor (or keep LOCAL_ONLY=1)",
+            "hint": "Account → Connections → Cursor API key (or webhook bridge)",
             "optional": True,
         },
         {
@@ -516,30 +517,64 @@ def _cloud_chat(message: str, local_reply: str, *, email: str | None = None) -> 
     }
 
     prefer = os.environ.get("AUTOCODE_CLOUD_PREFERENCE", "cursor").strip().lower()
+    cursor_key = connections.resolve_secret("cursor", "api_key", email=email)
     cursor_url = connections.resolve_secret("cursor", "webhook_url", email=email)
+    cursor_repo = connections.resolve_secret("cursor", "repository", email=email)
     grok_url = connections.resolve_secret("grok", "webhook_url", email=email)
-    cursor_tok = connections.resolve_secret("cursor", "webhook_token", email=email) or connections.resolve_secret(
-        "cursor", "api_key", email=email
-    )
+    cursor_tok = connections.resolve_secret("cursor", "webhook_token", email=email) or cursor_key
     grok_tok = connections.resolve_secret("grok", "webhook_token", email=email)
-    order: list[tuple[str, str, str]] = []
-    if prefer == "grok":
-        if grok_url:
-            order.append(("Grok Bot", grok_url, grok_tok))
-        if cursor_url:
-            order.append(("Cursor", cursor_url, cursor_tok))
-    else:
-        if cursor_url:
-            order.append(("Cursor", cursor_url, cursor_tok))
-        if grok_url:
-            order.append(("Grok Bot", grok_url, grok_tok))
 
     errors: list[str] = []
-    for label, url, token in order:
+
+    def _try_cursor_api() -> tuple[str, str] | None:
+        if not cursor_key:
+            return None
         try:
-            return _webhook_chat(url, token, payload, label), label
+            from integrations import cursor_cloud
+
+            reply = cursor_cloud.escalate_chat(
+                cursor_key,
+                prompt,
+                repository=cursor_repo or None,
+            )
+            return reply, "Cursor"
         except Exception as e:  # noqa: BLE001
-            errors.append(f"{label}: {e}")
+            errors.append(f"Cursor API: {e}")
+            return None
+
+    def _try_webhooks(*, cursor_first: bool) -> tuple[str, str] | None:
+        order: list[tuple[str, str, str]] = []
+        if cursor_first:
+            if cursor_url:
+                order.append(("Cursor", cursor_url, cursor_tok))
+            if grok_url:
+                order.append(("Grok Bot", grok_url, grok_tok))
+        else:
+            if grok_url:
+                order.append(("Grok Bot", grok_url, grok_tok))
+            if cursor_url:
+                order.append(("Cursor", cursor_url, cursor_tok))
+        for label, url, token in order:
+            try:
+                return _webhook_chat(url, token, payload, label), label
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"{label}: {e}")
+        return None
+
+    if prefer == "grok":
+        hit = _try_webhooks(cursor_first=False)
+        if hit:
+            return hit
+        hit = _try_cursor_api()
+        if hit:
+            return hit
+    else:
+        hit = _try_cursor_api()
+        if hit:
+            return hit
+        hit = _try_webhooks(cursor_first=True)
+        if hit:
+            return hit
 
     anthropic = connections.resolve_secret("claude", "api_key", email=email)
     if anthropic:
@@ -607,8 +642,8 @@ def _cloud_chat(message: str, local_reply: str, *, email: str | None = None) -> 
         return data["choices"][0]["message"]["content"], "Grok API"
 
     hint = (
-        "No premium provider configured. Add Cursor / Grok / Claude under "
-        "Account → Connections (recommended), or set machine .env webhooks. Local reply retained."
+        "No premium provider configured. Add a Cursor API key (Dashboard → API Keys) under "
+        "Account → Connections → Cursor, or Grok / Claude / OpenRouter. Local reply retained."
     )
     if errors:
         hint += " Webhook errors: " + "; ".join(errors)
