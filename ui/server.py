@@ -35,6 +35,34 @@ STATIC = Path(__file__).resolve().parent / "static"
 STATE = ROOT / "state"
 LOGS = ROOT / "logs"
 
+
+def build_info() -> dict[str, Any]:
+    """Identify which checkout/process is answering (debug split Jetson vs tunnel)."""
+    branch, rev = "?", "?"
+    try:
+        branch = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(ROOT),
+            text=True,
+            timeout=5,
+        ).strip()
+        rev = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(ROOT),
+            text=True,
+            timeout=5,
+        ).strip()
+    except Exception:  # noqa: BLE001
+        pass
+    return {
+        "root": str(ROOT),
+        "branch": branch,
+        "rev": rev,
+        "pid": os.getpid(),
+        "login_errors": "v2",
+    }
+
+
 HOST = os.environ.get("AUTOCODE_UI_HOST", "127.0.0.1")
 PORT = int(os.environ.get("AUTOCODE_UI_PORT", "8787"))
 TOKEN = secrets.token_urlsafe(24)
@@ -45,6 +73,7 @@ _PUBLIC_GET = {
     "/login.html",
     "/app.css",
     "/api/auth",
+    "/api/build",
 }
 _PUBLIC_POST = {
     "/api/login",
@@ -996,10 +1025,19 @@ class Handler(BaseHTTPRequestHandler):
         return None
 
     def _wants_secure_cookie(self) -> bool:
-        if env_truthy("AUTOCODE_UI_SECURE"):
-            return True
+        """Use Secure cookies only when the browser is actually on HTTPS.
+
+        AUTOCODE_UI_SECURE=1 must not force Secure on loopback HTTP — browsers
+        drop the cookie and login looks like a bad password (redirect back to
+        /login with no session).
+        """
         proto = (self.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip().lower()
-        return proto == "https"
+        if proto == "https":
+            return True
+        host = (self.headers.get("Host") or "").split(":")[0].strip().lower()
+        if host in ("127.0.0.1", "localhost", "::1"):
+            return False
+        return env_truthy("AUTOCODE_UI_SECURE")
 
     def _authed(self) -> bool:
         return ui_auth.session_valid(self._session_token())
@@ -1008,9 +1046,7 @@ class Handler(BaseHTTPRequestHandler):
         """Return True if the request may proceed."""
         if not ui_auth.private_mode_enabled():
             return True
-        if html and path in _PUBLIC_GET:
-            return True
-        if not html and path in _PUBLIC_POST:
+        if path in _PUBLIC_GET or path in _PUBLIC_POST:
             return True
         if path.startswith("/brand/"):
             return True
@@ -1090,9 +1126,12 @@ class Handler(BaseHTTPRequestHandler):
                         "authed": self._authed(),
                         "user": auth_user,
                         "profile": profile,
+                        "build": build_info(),
                     }
                 )
             )
+        if path == "/api/build":
+            return self._send(*json_response({"ok": True, **build_info()}))
         # Remaining API + pages need a session in private mode.
         if path.startswith("/api/"):
             if not self._require_session(path, html=False):
@@ -1254,14 +1293,42 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 )
             email = str(data.get("email") or data.get("username") or "")
-            sess = ui_auth.login(email, str(data.get("password") or ""))
-            if not sess:
+            password = str(data.get("password") or "")
+            if not email.strip() or not password:
                 return self._send(
                     *json_response(
                         {
                             "ok": False,
-                            "error": f"Invalid email or password "
-                            f"(only @{ui_auth.allowed_email_domain()} allowed)",
+                            "error": "Email and password required "
+                            "(browser autofill may have left password empty — try typing it)",
+                        },
+                        401,
+                    )
+                )
+            sess = ui_auth.login(email, password)
+            if not sess:
+                # Distinguish domain vs bad secret without leaking which emails exist.
+                from ui import auth as _a
+
+                norm = _a.normalize_email(email)
+                if norm and "@" not in norm:
+                    norm = f"{norm}@{_a.allowed_email_domain()}"
+                if not _a.is_allowed_email(norm):
+                    detail = (
+                        f"only @{_a.allowed_email_domain()} emails allowed"
+                    )
+                elif norm not in _a.load_users():
+                    detail = "unknown work email (run scripts/set_work_user.py)"
+                else:
+                    detail = (
+                        "wrong password for that email "
+                        "(clear autofill / try private window)"
+                    )
+                return self._send(
+                    *json_response(
+                        {
+                            "ok": False,
+                            "error": f"Invalid email or password — {detail}",
                         },
                         401,
                     )
