@@ -114,18 +114,25 @@ if [[ "$BEFORE" != "$REMOTE_REV" ]]; then
     log "ERROR: cannot pull while dirty"
     exit 1
   fi
-  # Stay on the tracking branch if already on it; otherwise hard-reset to remote tip.
+  # Stay on the tracking branch if already on it. Do NOT auto-checkout another
+  # branch (that yanked Jetson hotfixes back to main every 5 minutes).
   current="$(git rev-parse --abbrev-ref HEAD)"
   if [[ "$current" == "$BRANCH" ]]; then
     git pull --ff-only "$REMOTE" "$BRANCH"
-  else
-    log "On branch ${current}; fast-forwarding checkout to ${REMOTE}/${BRANCH}"
+    AFTER="$(git rev-parse HEAD)"
+    log "Updated ${BEFORE:0:8} → ${AFTER:0:8}"
+    UPDATED=1
+  elif [[ "${HAWKEYE_UPDATE_FORCE_CHECKOUT:-0}" == "1" ]]; then
+    log "On branch ${current}; FORCE_CHECKOUT → ${REMOTE}/${BRANCH}"
     git checkout "$BRANCH"
     git pull --ff-only "$REMOTE" "$BRANCH"
+    AFTER="$(git rev-parse HEAD)"
+    log "Updated ${BEFORE:0:8} → ${AFTER:0:8}"
+    UPDATED=1
+  else
+    log "WARN: on branch ${current}, tracking ${REMOTE}/${BRANCH} — skip pull (set HAWKEYE_UPDATE_FORCE_CHECKOUT=1 or HAWKEYE_UPDATE_BRANCH=${current} to update)"
+    AFTER="$BEFORE"
   fi
-  AFTER="$(git rev-parse HEAD)"
-  log "Updated ${BEFORE:0:8} → ${AFTER:0:8}"
-  UPDATED=1
 else
   log "Already up to date (${BEFORE:0:8})"
   AFTER="$BEFORE"
