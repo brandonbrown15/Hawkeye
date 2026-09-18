@@ -715,6 +715,8 @@
       data.encryption_ready ? "encryption ready" : "set memory key",
       auto.timer_active ? "update timer active" : "update timer inactive",
       auto.ui_active ? "UI service up" : "UI service down",
+      auto.tunnel_active ? "tunnel up" : "tunnel down",
+      auto.ollama_active ? "Ollama up" : "Ollama down — click Wake Ollama",
       `branch ${auto.update_branch || "?"}`,
     ];
     note.textContent = bits.join(" · ");
@@ -1020,6 +1022,31 @@
         renderMachine(out);
       } catch (e) {
         toast(String(e.message || e));
+      }
+    });
+  }
+
+  const machWake = document.getElementById("machWakeOllama");
+  if (machWake) {
+    machWake.addEventListener("click", async () => {
+      try {
+        toast("Starting Ollama on the Jetson…");
+        machWake.disabled = true;
+        const out = await post("/api/machine", { wake_ollama: "1" });
+        const ok = !!(out.ollama && out.ollama.ok) || !!(out.autostart && out.autostart.ollama_active);
+        toast(ok ? "Ollama is up — try chat again" : "Ollama wake failed — check Machine log");
+        renderMachine(out);
+        if (out.ollama && out.ollama.log) {
+          const log = document.getElementById("machineLog");
+          if (log) {
+            log.hidden = false;
+            log.textContent = out.ollama.log;
+          }
+        }
+      } catch (e) {
+        toast(String(e.message || e));
+      } finally {
+        machWake.disabled = false;
       }
     });
   }

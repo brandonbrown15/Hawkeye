@@ -117,6 +117,46 @@ def _systemctl_user(*args: str) -> tuple[bool, str]:
         return False, str(e)
 
 
+def _ollama_reachable() -> bool:
+    host = os.environ.get("OLLAMA_HOST", "127.0.0.1:11434").strip() or "127.0.0.1:11434"
+    try:
+        import urllib.request
+
+        with urllib.request.urlopen(f"http://{host}/api/tags", timeout=3) as resp:
+            return 200 <= int(getattr(resp, "status", 200) or 200) < 300
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def ensure_ollama(*, restart: bool = False, timeout_sec: int = 120) -> dict[str, Any]:
+    """Start (or restart) the local Ollama daemon via ensure_ollama.sh."""
+    script = ROOT / "ollama" / "ensure_ollama.sh"
+    if not script.is_file():
+        return {"ok": False, "error": "ollama/ensure_ollama.sh missing", "reachable": False}
+    cmd = ["bash", str(script)]
+    if restart:
+        cmd.append("--restart")
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=timeout_sec,
+            check=False,
+        )
+        out = ((proc.stdout or "") + (proc.stderr or "")).strip()
+        reachable = _ollama_reachable()
+        return {
+            "ok": proc.returncode == 0 and reachable,
+            "reachable": reachable,
+            "returncode": proc.returncode,
+            "log": out[-4000:],
+        }
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return {"ok": False, "error": str(e), "reachable": _ollama_reachable()}
+
+
 def update_status() -> dict[str, Any]:
     ok_check, check_out = False, ""
     script = ROOT / "scripts" / "hawkeye_self_update.sh"
@@ -138,6 +178,7 @@ def update_status() -> dict[str, Any]:
     ui_ok, _ = _systemctl_user("is-active", "hawkeye-ui.service")
     tunnel_ok, _ = _systemctl_user("is-active", "hawkeye-tunnel.service")
     branch = os.environ.get("HAWKEYE_UPDATE_BRANCH", "").strip() or "main"
+    ollama_ok = _ollama_reachable()
     return {
         "update_enabled": os.environ.get("HAWKEYE_UPDATE_ENABLED", "1").strip() != "0",
         "update_branch": branch,
@@ -148,6 +189,7 @@ def update_status() -> dict[str, Any]:
         "timer_detail": timer_out,
         "ui_active": ui_ok,
         "tunnel_active": tunnel_ok,
+        "ollama_active": ollama_ok,
         "script_present": script.is_file(),
     }
 
@@ -168,7 +210,8 @@ def status(email: str | None = None) -> dict[str, Any]:
         "autostart": update_status(),
         "hint": (
             "Add Cloudflare Tunnel install token, encryption key, and auto-update "
-            "branch here. Per-user API keys live under Connections."
+            "branch here. Use Wake Ollama if chat says connection refused. "
+            "Per-user API keys live under Connections."
         ),
     }
 
@@ -263,7 +306,18 @@ def apply(email: str, updates: dict[str, Any]) -> dict[str, Any]:
         except (OSError, subprocess.TimeoutExpired) as e:
             raise ValueError(f"force update failed: {e}") from e
 
+    wake_ollama = str(updates.get("wake_ollama") or "").lower() in ("1", "true", "yes")
+    restart_ollama = str(updates.get("restart_ollama") or "").lower() in ("1", "true", "yes")
+    ollama_result: dict[str, Any] | None = None
+    if wake_ollama or restart_ollama:
+        ollama_result = ensure_ollama(restart=restart_ollama)
+        actions.append(
+            "wake_ollama_ok" if ollama_result.get("ok") else f"wake_ollama_fail:{ollama_result.get('error') or ollama_result.get('returncode')}"
+        )
+
     out = status(email)
     out["applied"] = actions
     out["updated_at"] = time.time()
+    if ollama_result is not None:
+        out["ollama"] = ollama_result
     return out

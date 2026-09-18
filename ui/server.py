@@ -866,12 +866,34 @@ def handle_chat(
             "For repo questions, use the workspace brief above and conversation history."
         )
     local_reply = ""
+    escalated = False
     try:
         local_reply = _ollama_chat(message, system, history=prior)
     except Exception as e:  # noqa: BLE001
-        local_reply = f"(local model unavailable: {e})"
-        escalated = True
-    else:
+        err = str(e)
+        # Tunnel/UI can be up while Ollama died after boot — try one remote wake.
+        woke = False
+        if any(x in err.lower() for x in ("connection refused", "errno 111", "timed out", "urlopen error")):
+            try:
+                from ui import machine_settings
+
+                wake = machine_settings.ensure_ollama(restart=False, timeout_sec=90)
+                if wake.get("ok") or wake.get("reachable"):
+                    try:
+                        local_reply = _ollama_chat(message, system, history=prior)
+                        woke = True
+                    except Exception as e2:  # noqa: BLE001
+                        err = str(e2)
+                if not woke:
+                    detail = wake.get("error") or (wake.get("log") or "")[:240]
+                    local_reply = f"(local model unavailable: {err})\n(tried Wake Ollama: {detail})"
+            except Exception as wake_err:  # noqa: BLE001
+                local_reply = f"(local model unavailable: {err}; wake failed: {wake_err})"
+        else:
+            local_reply = f"(local model unavailable: {err})"
+        if not woke:
+            escalated = True
+    if not escalated:
         escalated = _should_escalate(message, local_reply, history=prior)
 
     cloud_reply = ""
