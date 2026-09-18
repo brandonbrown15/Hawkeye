@@ -90,15 +90,20 @@ _BOARD_DEFAULTS: list[dict[str, str]] = [
 
 
 def _token() -> str:
-    return os.environ.get("NOTION_TOKEN", "").strip()
+    try:
+        from ui import connections
+
+        return connections.resolve_secret("notion", "token")
+    except Exception:  # noqa: BLE001
+        return os.environ.get("NOTION_TOKEN", "").strip()
 
 
 def notion_api(method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
     token = _token()
     if not token:
         raise NotionError(
-            "NOTION_TOKEN is not set. Connect Notion on the Jetson "
-            "(./scripts/connect_notion.sh) so Hawkeye can load project boards.",
+            "Notion token not set. Add it under Account → Connections → Notion "
+            "(or set NOTION_TOKEN in .env / connect_notion.sh for machine autopilot).",
             status=503,
         )
     data = None if body is None else json.dumps(body).encode()

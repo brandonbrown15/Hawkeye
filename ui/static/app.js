@@ -184,7 +184,7 @@
     if (data.offline || data.warning) {
       banner.hidden = false;
       banner.textContent = data.warning
-        || "Notion token not connected on this machine — showing sample board. Connect with ./scripts/connect_notion.sh for live team data.";
+        || "Notion token not connected — showing sample board. Add Notion under Account → Connections for live team data.";
     } else {
       banner.hidden = true;
     }
@@ -493,12 +493,13 @@
   }
 
   async function loadAccountData() {
-    const [me, conns, projects, threads, users] = await Promise.all([
+    const [me, conns, projects, threads, users, machine] = await Promise.all([
       get("/api/me"),
       get("/api/connections"),
       get("/api/account/projects"),
       get("/api/messages/threads"),
       get("/api/users"),
+      get("/api/machine").catch(() => null),
     ]);
     const profile = me.profile || {};
     currentUser = profile.email || currentUser;
@@ -507,6 +508,7 @@
     document.getElementById("profEmp").value = profile.employee_number || "";
     document.getElementById("profEmail").textContent = profile.email || "";
     renderConnections(conns);
+    renderMachine(machine);
     renderAccountProjects(projects.projects || []);
     renderMineProjects(projects.projects || []);
     coworkers = (users.users || []).filter((u) => u.email !== currentUser);
@@ -515,12 +517,41 @@
     updateMsgBadge(threads.unread_total || 0);
   }
 
+  function renderMachine(data) {
+    const note = document.getElementById("machineStatusNote");
+    const log = document.getElementById("machineLog");
+    if (!data || !note) return;
+    const auto = data.autostart || {};
+    const bits = [
+      data.tunnel_token_set ? "tunnel token set" : "tunnel token missing",
+      data.encryption_ready ? "encryption ready" : "set memory key",
+      auto.timer_active ? "update timer active" : "update timer inactive",
+      auto.ui_active ? "UI service up" : "UI service down",
+      `branch ${auto.update_branch || "?"}`,
+    ];
+    note.textContent = bits.join(" · ");
+    if (auto.update_check) {
+      log.hidden = false;
+      log.textContent = auto.update_check;
+    }
+    const branch = document.getElementById("machBranch");
+    const host = document.getElementById("machHost");
+    const on = document.getElementById("machUpdateOn");
+    if (branch && !branch.dataset.touched) branch.value = auto.update_branch || "";
+    if (host && !host.dataset.touched) host.value = data.public_host || "";
+    if (on) on.checked = !!auto.update_enabled;
+    const tunnel = document.getElementById("machTunnel");
+    if (tunnel) tunnel.placeholder = data.tunnel_token_set ? "(saved — enter to replace)" : "Paste Cloudflare install token";
+    const mem = document.getElementById("machMemKey");
+    if (mem) mem.placeholder = data.memory_key_set ? "(set — enter to rotate)" : "Long passphrase for encryption";
+  }
+
   function renderConnections(data) {
     const note = document.getElementById("connEncryptNote");
     if (note) {
       note.textContent = data.encryption_ready
         ? "Secret encryption is on (HAWKEYE_MEMORY_KEY / HAWKEYE_SECRETS_KEY)."
-        : "Set HAWKEYE_MEMORY_KEY (or HAWKEYE_SECRETS_KEY) so connection secrets encrypt at rest.";
+        : "Set HAWKEYE_MEMORY_KEY under Account → Machine so connection secrets encrypt at rest.";
     }
     const list = document.getElementById("connectionsList");
     if (!list) return;
@@ -532,7 +563,15 @@
       card.className = "conn-card";
       const head = document.createElement("div");
       head.className = "conn-head";
-      head.innerHTML = `<strong>${p.label}</strong><span class="conn-status ${p.status === "connected" ? "on" : "off"}">${p.status}</span>`;
+      const statusClass =
+        p.status === "connected" ? "on" : p.status === "machine" ? "machine" : "off";
+      const statusLabel =
+        p.status === "connected"
+          ? "connected"
+          : p.status === "machine"
+            ? "machine .env"
+            : "disconnected";
+      head.innerHTML = `<strong>${p.label}</strong><span class="conn-status ${statusClass}">${statusLabel}</span>`;
       const hint = document.createElement("p");
       hint.className = "section-note";
       hint.textContent = p.hint || "";
@@ -743,6 +782,53 @@
           employee_number: document.getElementById("profEmp").value,
         });
         toast("Profile saved");
+      } catch (e) {
+        toast(String(e.message || e));
+      }
+    });
+  }
+
+  ["machBranch", "machHost"].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("input", () => { el.dataset.touched = "1"; });
+  });
+
+  const machSave = document.getElementById("machSave");
+  if (machSave) {
+    machSave.addEventListener("click", async () => {
+      const body = {
+        update_enabled: document.getElementById("machUpdateOn")?.checked ? "1" : "0",
+        update_branch: document.getElementById("machBranch")?.value || "",
+        public_host: document.getElementById("machHost")?.value || "",
+        restart_tunnel: "1",
+      };
+      const tunnel = document.getElementById("machTunnel")?.value?.trim();
+      const mem = document.getElementById("machMemKey")?.value?.trim();
+      if (tunnel) body.tunnel_token = tunnel;
+      if (mem) {
+        body.memory_key = mem;
+        if (document.getElementById("machForceMem")?.checked) body.force_memory_key = "1";
+      }
+      try {
+        const out = await post("/api/machine", body);
+        toast("Machine settings saved");
+        if (document.getElementById("machTunnel")) document.getElementById("machTunnel").value = "";
+        if (document.getElementById("machMemKey")) document.getElementById("machMemKey").value = "";
+        renderMachine(out);
+      } catch (e) {
+        toast(String(e.message || e));
+      }
+    });
+  }
+
+  const machForce = document.getElementById("machForceUpdate");
+  if (machForce) {
+    machForce.addEventListener("click", async () => {
+      try {
+        toast("Pulling GitHub + refreshing UI…");
+        const out = await post("/api/machine", { force_update: "1" });
+        toast("Force update finished");
+        renderMachine(out);
       } catch (e) {
         toast(String(e.message || e));
       }

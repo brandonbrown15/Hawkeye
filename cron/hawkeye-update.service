@@ -1,0 +1,16 @@
+[Unit]
+Description=Hawkeye self-update — pull GitHub + refresh local UI/LLM
+Documentation=file:///opt/autocode/docs/hawkeye.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/autocode
+EnvironmentFile=-/opt/autocode/.env
+Environment=HAWKEYE_UPDATE_ENABLED=1
+ExecStart=/opt/autocode/scripts/hawkeye_self_update.sh
+Nice=10
+
+[Install]
+WantedBy=default.target

@@ -48,6 +48,7 @@
       <nav class="account-tabs" role="tablist">
         <button type="button" class="account-tab is-active" data-tab="profile">Profile</button>
         <button type="button" class="account-tab" data-tab="connections">Connections</button>
+        <button type="button" class="account-tab" data-tab="machine">Machine</button>
         <button type="button" class="account-tab" data-tab="projects">Projects</button>
         <button type="button" class="account-tab" data-tab="messages">Messages</button>
       </nav>
@@ -63,9 +64,28 @@
         <button type="button" class="btn primary compact" id="profSave">Save profile</button>
       </section>
       <section class="account-pane" data-pane="connections">
-        <p class="section-note">Each coworker connects their own Cloudflare, Notion, GitHub, Cursor, Claude, and ChatGPT/Codex keys. Secrets stay encrypted for your account only.</p>
+        <p class="section-note">Connect every integration from this browser (laptop or phone). Secrets encrypt for your account and power chat, boards, and escalate — machine .env remains a fallback for overnight autopilot.</p>
         <p class="meta" id="connEncryptNote"></p>
         <div id="connectionsList" class="connections-list"></div>
+      </section>
+      <section class="account-pane" data-pane="machine">
+        <p class="section-note">Jetson-wide settings: Cloudflare tunnel install token, encryption key, and GitHub auto-update. Changes write to the machine `.env` and keep services running via autostart.</p>
+        <p class="meta" id="machineStatusNote"></p>
+        <label for="machTunnel">Cloudflare Tunnel install token</label>
+        <input id="machTunnel" type="password" autocomplete="off" placeholder="(saved — enter to replace)" />
+        <label for="machMemKey">HAWKEYE_MEMORY_KEY (encrypt secrets + memory)</label>
+        <input id="machMemKey" type="password" autocomplete="off" placeholder="(set once — enter to set/rotate)" />
+        <label class="inline-check"><input type="checkbox" id="machForceMem" /> Rotate memory key even if already set</label>
+        <label for="machBranch">Auto-update branch</label>
+        <input id="machBranch" placeholder="main or cursor/hawkeye-…" />
+        <label class="inline-check"><input type="checkbox" id="machUpdateOn" checked /> Pull GitHub every 5 minutes + restart UI</label>
+        <label for="machHost">Public host</label>
+        <input id="machHost" placeholder="hawkeye.brownhawke.engineering" />
+        <div class="conn-actions">
+          <button type="button" class="btn primary compact" id="machSave">Save machine settings</button>
+          <button type="button" class="btn compact" id="machForceUpdate">Force update now</button>
+        </div>
+        <pre class="machine-log" id="machineLog" hidden></pre>
       </section>
       <section class="account-pane" data-pane="projects">
         <p class="section-note">Save projects to your account, then share them with teammates who also have Hawkeye logins.</p>

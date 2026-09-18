@@ -1,8 +1,10 @@
 """Per-user integration connections (encrypted secrets at rest).
 
-Providers: cloudflare, notion, github, cursor, claude, chatgpt.
 Secrets stored under accounts/connections/<email>.json using memory crypto
 (HAWKEYE_MEMORY_KEY / HAWKEYE_SECRETS_KEY). APIs never return raw secrets.
+
+Runtime callers use resolve_secret() — prefers the signed-in user's vault,
+then falls back to machine .env so overnight autopilot still works.
 """
 
 from __future__ import annotations
@@ -12,6 +14,7 @@ import os
 import re
 import threading
 import time
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -19,6 +22,7 @@ from ui import accounts
 from ui import auth as ui_auth
 
 _LOCK = threading.RLock()
+_REQUEST_USER: ContextVar[str | None] = ContextVar("hawkeye_request_user", default=None)
 
 PROVIDERS = (
     "cloudflare",
@@ -27,18 +31,43 @@ PROVIDERS = (
     "cursor",
     "claude",
     "chatgpt",
+    "grok",
+    "openrouter",
+    "brave",
+    "telegram",
 )
+
+# Maps UI fields → machine .env fallbacks (first non-empty wins).
+ENV_FALLBACKS: dict[tuple[str, str], tuple[str, ...]] = {
+    ("cloudflare", "api_token"): ("CLOUDFLARE_API_TOKEN",),
+    ("cloudflare", "account_id"): ("CLOUDFLARE_ACCOUNT_ID",),
+    ("notion", "token"): ("NOTION_TOKEN",),
+    ("github", "token"): ("GITHUB_TOKEN", "GH_TOKEN"),
+    ("cursor", "api_key"): ("CURSOR_API_KEY",),
+    ("cursor", "webhook_url"): ("CURSOR_WEBHOOK_URL",),
+    ("cursor", "webhook_token"): ("CURSOR_WEBHOOK_TOKEN", "CURSOR_API_KEY"),
+    ("claude", "api_key"): ("ANTHROPIC_API_KEY",),
+    ("chatgpt", "api_key"): ("OPENAI_API_KEY",),
+    ("chatgpt", "org_id"): ("OPENAI_ORG_ID",),
+    ("grok", "webhook_url"): ("GROK_BOT_WEBHOOK_URL",),
+    ("grok", "webhook_token"): ("GROK_BOT_WEBHOOK_TOKEN",),
+    ("grok", "api_key"): ("XAI_API_KEY",),
+    ("openrouter", "api_key"): ("OPENROUTER_API_KEY",),
+    ("brave", "api_key"): ("BRAVE_SEARCH_API_KEY",),
+    ("telegram", "bot_token"): ("TELEGRAM_BOT_TOKEN",),
+    ("telegram", "chat_id"): ("TELEGRAM_CHAT_ID",),
+}
 
 PROVIDER_META = {
     "cloudflare": {
         "label": "Cloudflare",
         "fields": ["api_token", "account_id"],
-        "hint": "API token with DNS / Workers / Tunnel scopes as needed",
+        "hint": "API token (DNS / Workers / Tunnel scopes). Tunnel install token is under Machine.",
     },
     "notion": {
         "label": "Notion",
         "fields": ["token"],
-        "hint": "Internal integration token or OAuth access token",
+        "hint": "Internal integration token — used for live PM boards in your session",
     },
     "github": {
         "label": "GitHub",
@@ -48,19 +77,48 @@ PROVIDER_META = {
     "cursor": {
         "label": "Cursor",
         "fields": ["api_key", "webhook_url", "webhook_token"],
-        "hint": "Cursor API key and/or Cloud Agent webhook",
+        "hint": "Cursor API key and/or Cloud Agent webhook for hard-ask escalate",
     },
     "claude": {
         "label": "Claude (Anthropic)",
         "fields": ["api_key"],
-        "hint": "Anthropic API key for Claude Code / API",
+        "hint": "Anthropic API key for Claude escalate",
     },
     "chatgpt": {
         "label": "ChatGPT / Codex",
         "fields": ["api_key", "org_id"],
         "hint": "OpenAI API key for ChatGPT / Codex",
     },
+    "grok": {
+        "label": "Grok Bot / xAI",
+        "fields": ["webhook_url", "webhook_token", "api_key"],
+        "hint": "Grok Bot webhook and/or xAI API key",
+    },
+    "openrouter": {
+        "label": "OpenRouter",
+        "fields": ["api_key"],
+        "hint": "OpenRouter API key (cloud escalate fallback)",
+    },
+    "brave": {
+        "label": "Brave Search",
+        "fields": ["api_key"],
+        "hint": "Brave Search API key (else DuckDuckGo HTML)",
+    },
+    "telegram": {
+        "label": "Telegram",
+        "fields": ["bot_token", "chat_id"],
+        "hint": "Bot token + chat id for digests / alerts",
+    },
 }
+
+
+def set_request_user(email: str | None) -> None:
+    """Bind the signed-in email for resolve_secret() during a request."""
+    _REQUEST_USER.set(ui_auth.normalize_email(email) if email else None)
+
+
+def get_request_user() -> str | None:
+    return _REQUEST_USER.get()
 
 
 def _safe_email_file(email: str) -> str:
@@ -73,7 +131,6 @@ def connections_path(email: str) -> Path:
 
 
 def _secrets_key() -> bytes | None:
-    # Prefer dedicated secrets key; fall back to memory key.
     raw = os.environ.get("HAWKEYE_SECRETS_KEY", "").strip()
     if raw:
         os.environ.setdefault("HAWKEYE_MEMORY_KEY", raw)
@@ -94,7 +151,6 @@ def _encrypt_secret(value: str) -> str:
 
         key = _secrets_key()
         if key is None:
-            # Still mark as stored but warn via status; keep obfuscated prefix.
             return "plain:" + value
         return crypto.encode_record({"v": value}, key)
     except Exception:  # noqa: BLE001
@@ -151,15 +207,24 @@ def list_connections(email: str) -> dict[str, Any]:
         row = (data.get("providers") or {}).get(pid) or {}
         secrets = row.get("secrets") if isinstance(row.get("secrets"), dict) else {}
         connected = any(bool(secrets.get(f)) for f in meta["fields"])
+        # Show machine-env fallback as "machine" so operators know autopilot still works.
+        machine = False
+        if not connected:
+            for field in meta["fields"]:
+                if _env_fallback(pid, field):
+                    machine = True
+                    break
+        status = "connected" if connected else ("machine" if machine else "disconnected")
         out[pid] = {
             "id": pid,
             "label": meta["label"],
             "hint": meta["hint"],
             "fields": meta["fields"],
-            "status": "connected" if connected else "disconnected",
+            "status": status,
             "account_label": str(row.get("account_label") or ""),
             "updated_at": row.get("updated_at"),
             "has_secret": connected,
+            "machine_fallback": machine,
             "encryption": "on" if _secrets_key() else "off",
         }
     return {
@@ -226,3 +291,38 @@ def get_secret(email: str, provider: str, field: str) -> str:
         row = (data.get("providers") or {}).get(provider) or {}
         secrets = row.get("secrets") if isinstance(row.get("secrets"), dict) else {}
         return _decrypt_secret(str(secrets.get(field) or ""))
+
+
+def _env_fallback(provider: str, field: str) -> str:
+    for key in ENV_FALLBACKS.get((provider, field), ()):
+        val = os.environ.get(key, "").strip()
+        if val:
+            return val
+    return ""
+
+
+def resolve_secret(
+    provider: str,
+    field: str,
+    *,
+    email: str | None = None,
+    env_keys: tuple[str, ...] | None = None,
+) -> str:
+    """Prefer per-user vault, then machine .env (for autopilot / shared tokens)."""
+    provider = (provider or "").strip().lower()
+    field = (field or "").strip()
+    email = ui_auth.normalize_email(email) if email else get_request_user()
+    if email:
+        val = get_secret(email, provider, field)
+        if val:
+            return val
+    if env_keys:
+        for key in env_keys:
+            val = os.environ.get(key, "").strip()
+            if val:
+                return val
+    return _env_fallback(provider, field)
+
+
+def has_secret(provider: str, field: str, *, email: str | None = None) -> bool:
+    return bool(resolve_secret(provider, field, email=email))

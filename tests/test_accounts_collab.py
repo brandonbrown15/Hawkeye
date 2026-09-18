@@ -87,11 +87,37 @@ class AccountsCollabTests(unittest.TestCase):
             connections.get_secret("mark@brownhawke.engineering", "github", "token"),
             "ghp_mark_secret",
         )
+        connections.set_request_user("brandon@brownhawke.engineering")
+        self.assertEqual(connections.resolve_secret("github", "token"), "ghp_brandon_secret")
+        os.environ["GITHUB_TOKEN"] = "ghp_machine_only"
         connections.disconnect("brandon@brownhawke.engineering", "github")
+        connections.set_request_user("brandon@brownhawke.engineering")
+        self.assertEqual(connections.resolve_secret("github", "token"), "ghp_machine_only")
+        self.assertEqual(
+            connections.list_connections("brandon@brownhawke.engineering")["providers"]["github"]["status"],
+            "machine",
+        )
+        del os.environ["GITHUB_TOKEN"]
         self.assertEqual(
             connections.list_connections("brandon@brownhawke.engineering")["providers"]["github"]["status"],
             "disconnected",
         )
+
+    def test_provider_catalog_covers_integrations(self) -> None:
+        for pid in (
+            "cloudflare",
+            "notion",
+            "github",
+            "cursor",
+            "claude",
+            "chatgpt",
+            "grok",
+            "openrouter",
+            "brave",
+            "telegram",
+        ):
+            self.assertIn(pid, connections.PROVIDERS)
+            self.assertIn(pid, connections.PROVIDER_META)
 
     def test_project_share_and_dm(self) -> None:
         created = team_projects.create_project(

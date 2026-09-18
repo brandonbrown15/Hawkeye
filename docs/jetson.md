@@ -118,17 +118,26 @@ echo 'TUNNEL_TOKEN=eyJ…' >> ~/Hawkeye/.env
 systemctl --user status hawkeye-tunnel.service
 ```
 
-### Link API tokens in the UI (Account → Connections)
-After pulling a build that includes accounts-collab:
-1. Set an encryption key (once):
-```bash
-# add to .env — long random passphrase
-echo "HAWKEYE_MEMORY_KEY=$(openssl rand -hex 32)" >> .env
-```
-2. Open Hawkeye → sign in → **Account** → **Connections**
-3. Save Cloudflare / Notion / GitHub / Cursor / Claude / ChatGPT tokens per user  
+### Link API tokens in the UI (Account → Connections + Machine)
+After pulling this branch (or merged main):
+1. Open Hawkeye in the browser (public URL or SSH/Tailscale `:8787`) → sign in
+2. **Account → Machine** — paste Cloudflare Tunnel install token, set `HAWKEYE_MEMORY_KEY`, choose auto-update branch, enable 5‑minute GitHub pulls
+3. **Account → Connections** — save Notion / GitHub / Cursor / Claude / ChatGPT / Grok / Brave / Telegram per user  
 
-See [accounts.md](accounts.md). Machine `.env` still powers overnight autopilot; UI connections are per signed-in person.
+Secrets encrypt with the memory key and are used at runtime for your session. Machine `.env` remains a fallback for overnight autopilot.
+
+See [accounts.md](accounts.md).
+
+### Keep the Jetson up to date (auto-update)
+`./scripts/install_hawkeye_autostart.sh` enables `hawkeye-update.timer` (every 5 minutes):
+- `git fetch` + fast-forward pull of `HAWKEYE_UPDATE_BRANCH` (default: **current branch**)
+- Recreate `coder-64k` when Modelfile changes
+- Restart `hawkeye-ui` so laptop UI changes land on the Orin without SSH
+
+```bash
+./scripts/hawkeye_self_update.sh --check
+# pause: Account → Machine → uncheck auto-update, or HAWKEYE_UPDATE_ENABLED=0
+```
 
 ## Phase 0 checklist
 

@@ -69,6 +69,7 @@ PY
 }
 
 if [[ "$DISABLE" -eq 1 ]]; then
+  "${SYSCTL[@]}" disable --now hawkeye-update.timer 2>/dev/null || true
   "${SYSCTL[@]}" disable --now hawkeye-tunnel.service 2>/dev/null || true
   "${SYSCTL[@]}" disable --now hawkeye-ui.service 2>/dev/null || true
   "${SYSCTL[@]}" disable --now autocode-ui.service 2>/dev/null || true
@@ -79,6 +80,10 @@ fi
 echo "Installing Hawkeye auto-start ($MODE) from $ROOT …"
 mkdir -p "$UNIT_DIR"
 rewrite_unit "$ROOT/cron/hawkeye-ui.service" "$UNIT_DIR/hawkeye-ui.service"
+if [[ -f "$ROOT/cron/hawkeye-update.service" ]]; then
+  rewrite_unit "$ROOT/cron/hawkeye-update.service" "$UNIT_DIR/hawkeye-update.service"
+  cp "$ROOT/cron/hawkeye-update.timer" "$UNIT_DIR/hawkeye-update.timer"
+fi
 
 install_tunnel=0
 if [[ "$WITH_TUNNEL" == "1" ]]; then
@@ -119,18 +124,24 @@ if systemctl list-unit-files 2>/dev/null | grep -q '^ollama\.service'; then
 fi
 
 "${SYSCTL[@]}" enable --now hawkeye-ui.service
+if [[ -f "$UNIT_DIR/hawkeye-update.timer" ]]; then
+  "${SYSCTL[@]}" enable --now hawkeye-update.timer
+fi
 if [[ "$install_tunnel" -eq 1 ]]; then
   "${SYSCTL[@]}" enable --now hawkeye-tunnel.service
 fi
 
 echo
 echo "Hawkeye auto-start installed ($MODE)."
-echo "  • hawkeye-ui.service     — dashboard + chat on boot"
-[[ "$install_tunnel" -eq 1 ]] && echo "  • hawkeye-tunnel.service — Cloudflare → hawkeye.brownhawke.engineering"
+echo "  • hawkeye-ui.service       — dashboard + chat on boot"
+[[ -f "$UNIT_DIR/hawkeye-update.timer" ]] && echo "  • hawkeye-update.timer     — pull GitHub every 5 min + refresh UI/LLM"
+[[ "$install_tunnel" -eq 1 ]] && echo "  • hawkeye-tunnel.service   — Cloudflare → hawkeye.brownhawke.engineering"
 echo
 echo "Check:"
 echo "  ${SYSCTL[*]} status hawkeye-ui.service"
-echo "  ${SYSCTL[*]} is-enabled hawkeye-ui.service"
+[[ -f "$UNIT_DIR/hawkeye-update.timer" ]] && echo "  ${SYSCTL[*]} list-timers hawkeye-update.timer"
+[[ -f "$ROOT/scripts/hawkeye_self_update.sh" ]] && echo "  ./scripts/hawkeye_self_update.sh --check"
 echo
 echo "Disable later:"
 echo "  $0 ${MODE} --disable"
+echo "  # or pause updates only:  HAWKEYE_UPDATE_ENABLED=0 in .env (or Account → Machine)"
