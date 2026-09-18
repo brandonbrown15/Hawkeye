@@ -1263,14 +1263,42 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 )
             email = str(data.get("email") or data.get("username") or "")
-            sess = ui_auth.login(email, str(data.get("password") or ""))
-            if not sess:
+            password = str(data.get("password") or "")
+            if not email.strip() or not password:
                 return self._send(
                     *json_response(
                         {
                             "ok": False,
-                            "error": f"Invalid email or password "
-                            f"(only @{ui_auth.allowed_email_domain()} allowed)",
+                            "error": "Email and password required "
+                            "(browser autofill may have left password empty — try typing it)",
+                        },
+                        401,
+                    )
+                )
+            sess = ui_auth.login(email, password)
+            if not sess:
+                # Distinguish domain vs bad secret without leaking which emails exist.
+                from ui import auth as _a
+
+                norm = _a.normalize_email(email)
+                if norm and "@" not in norm:
+                    norm = f"{norm}@{_a.allowed_email_domain()}"
+                if not _a.is_allowed_email(norm):
+                    detail = (
+                        f"only @{_a.allowed_email_domain()} emails allowed"
+                    )
+                elif norm not in _a.load_users():
+                    detail = "unknown work email (run scripts/set_work_user.py)"
+                else:
+                    detail = (
+                        "wrong password for that email "
+                        "(clear autofill / try private window)"
+                    )
+                return self._send(
+                    *json_response(
+                        {
+                            "ok": False,
+                            "error": f"Invalid email or password — {detail}",
                         },
                         401,
                     )
