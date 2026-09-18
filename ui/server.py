@@ -35,6 +35,34 @@ STATIC = Path(__file__).resolve().parent / "static"
 STATE = ROOT / "state"
 LOGS = ROOT / "logs"
 
+
+def build_info() -> dict[str, Any]:
+    """Identify which checkout/process is answering (debug split Jetson vs tunnel)."""
+    branch, rev = "?", "?"
+    try:
+        branch = subprocess.check_output(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=str(ROOT),
+            text=True,
+            timeout=5,
+        ).strip()
+        rev = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=str(ROOT),
+            text=True,
+            timeout=5,
+        ).strip()
+    except Exception:  # noqa: BLE001
+        pass
+    return {
+        "root": str(ROOT),
+        "branch": branch,
+        "rev": rev,
+        "pid": os.getpid(),
+        "login_errors": "v2",
+    }
+
+
 HOST = os.environ.get("AUTOCODE_UI_HOST", "127.0.0.1")
 PORT = int(os.environ.get("AUTOCODE_UI_PORT", "8787"))
 TOKEN = secrets.token_urlsafe(24)
@@ -45,6 +73,7 @@ _PUBLIC_GET = {
     "/login.html",
     "/app.css",
     "/api/auth",
+    "/api/build",
 }
 _PUBLIC_POST = {
     "/api/login",
@@ -1099,9 +1128,12 @@ class Handler(BaseHTTPRequestHandler):
                         "authed": self._authed(),
                         "user": auth_user,
                         "profile": profile,
+                        "build": build_info(),
                     }
                 )
             )
+        if path == "/api/build":
+            return self._send(*json_response({"ok": True, **build_info()}))
         # Remaining API + pages need a session in private mode.
         if path.startswith("/api/"):
             if not self._require_session(path, html=False):
