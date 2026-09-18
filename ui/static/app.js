@@ -343,6 +343,121 @@
     await loadBoard();
   }
 
+  async function loadInbox() {
+    const list = document.getElementById("inboxList");
+    const note = document.getElementById("inboxNote");
+    if (!list) return;
+    try {
+      const data = await get("/api/mail?limit=30");
+      if (note) {
+        note.textContent = data.enabled
+          ? "Inbox live — drafts stay local until you hit Send."
+          : "Mail is off. Set HAWKEYE_MAIL_ENABLED=1 + Resend keys to connect receiving.";
+      }
+      list.innerHTML = "";
+      const messages = data.messages || [];
+      if (!messages.length) {
+        const empty = document.createElement("p");
+        empty.className = "inbox-empty";
+        empty.textContent = data.enabled
+          ? "No messages yet."
+          : "Enable mail in .env, then point Resend webhook to /api/webhooks/resend.";
+        list.appendChild(empty);
+        return;
+      }
+      for (const msg of messages) {
+        list.appendChild(renderMailItem(msg));
+      }
+    } catch (e) {
+      list.innerHTML = "";
+      const err = document.createElement("p");
+      err.className = "inbox-empty";
+      err.textContent = String(e.message || e);
+      list.appendChild(err);
+    }
+  }
+
+  function renderMailItem(msg) {
+    const wrap = document.createElement("article");
+    wrap.className = "inbox-item";
+    wrap.dataset.id = msg.id;
+
+    const meta = document.createElement("div");
+    meta.className = "inbox-meta";
+    meta.textContent = `${msg.status} · from ${msg.from_addr || "?"} · ${new Date((msg.received_at || 0) * 1000).toLocaleString()}`;
+
+    const subject = document.createElement("h3");
+    subject.className = "inbox-subject";
+    subject.textContent = msg.subject || "(no subject)";
+
+    const body = document.createElement("p");
+    body.className = "inbox-body";
+    body.textContent = (msg.body || msg.reject_reason || "").slice(0, 600);
+
+    wrap.append(meta, subject, body);
+
+    if (msg.draft) {
+      const draft = document.createElement("p");
+      draft.className = "inbox-draft";
+      draft.textContent = msg.draft.slice(0, 800);
+      wrap.appendChild(draft);
+    }
+
+    if (msg.status !== "rejected" && msg.status !== "ignored" && msg.status !== "sent") {
+      const actions = document.createElement("div");
+      actions.className = "inbox-actions";
+      const draftBtn = document.createElement("button");
+      draftBtn.type = "button";
+      draftBtn.className = "btn compact";
+      draftBtn.textContent = msg.draft ? "Redraft" : "Draft reply";
+      draftBtn.addEventListener("click", async () => {
+        draftBtn.disabled = true;
+        try {
+          await post(`/api/mail/${encodeURIComponent(msg.id)}/draft`, {});
+          toast("Draft ready");
+          await loadInbox();
+        } catch (e) {
+          toast(String(e.message || e));
+        } finally {
+          draftBtn.disabled = false;
+        }
+      });
+      const sendBtn = document.createElement("button");
+      sendBtn.type = "button";
+      sendBtn.className = "btn primary compact";
+      sendBtn.textContent = "Send reply";
+      sendBtn.disabled = !msg.draft;
+      sendBtn.addEventListener("click", async () => {
+        if (!confirm("Send this reply via Resend?")) return;
+        sendBtn.disabled = true;
+        try {
+          await post(`/api/mail/${encodeURIComponent(msg.id)}/send`, {});
+          toast("Reply sent");
+          await loadInbox();
+        } catch (e) {
+          toast(String(e.message || e));
+        } finally {
+          sendBtn.disabled = false;
+        }
+      });
+      const ignoreBtn = document.createElement("button");
+      ignoreBtn.type = "button";
+      ignoreBtn.className = "btn ghost compact";
+      ignoreBtn.textContent = "Ignore";
+      ignoreBtn.addEventListener("click", async () => {
+        try {
+          await post(`/api/mail/${encodeURIComponent(msg.id)}/ignore`, {});
+          await loadInbox();
+        } catch (e) {
+          toast(String(e.message || e));
+        }
+      });
+      actions.append(draftBtn, sendBtn, ignoreBtn);
+      wrap.appendChild(actions);
+    }
+    return wrap;
+  }
+
   async function refreshOps() {
     const [snap, ready, logs, demo, work] = await Promise.all([
       get("/api/status"),
@@ -498,8 +613,17 @@
   loadProjects().catch((e) => toast(String(e.message || e)));
   refreshOps().catch((e) => toast(String(e.message || e)));
   loadLocalOnlySetting().catch(() => {});
+  loadInbox().catch(() => {});
   setInterval(() => { refreshOps().catch(() => {}); }, 4000);
   setInterval(() => { loadBoard().catch(() => {}); }, 20000);
+  setInterval(() => { loadInbox().catch(() => {}); }, 30000);
+
+  const inboxRefresh = document.getElementById("inboxRefresh");
+  if (inboxRefresh) {
+    inboxRefresh.addEventListener("click", () => {
+      loadInbox().catch((e) => toast(String(e.message || e)));
+    });
+  }
 
   const localOnlyToggle = document.getElementById("localOnlyToggle");
   if (localOnlyToggle) {

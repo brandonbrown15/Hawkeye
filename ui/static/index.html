@@ -184,16 +184,25 @@
 
     <section class="chat" aria-labelledby="chatHeading">
       <h2 id="chatHeading">Talk to Hawkeye</h2>
-      <p class="section-note" id="chatNote">Ask Hawkeye to plan, research, or queue work. Useful items can seed the Notion board. Local only is per signed-in account.</p>
+      <p class="section-note" id="chatNote">Ask Hawkeye to plan, research, or queue work. Useful items can seed the Notion board. Say “deep research …” to fetch and read pages. Local only is per signed-in account.</p>
       <div id="chatLog" class="chat-log" role="log" aria-live="polite"></div>
       <form class="chat-form" id="chatForm">
         <label for="chatInput" class="sr-only">Message</label>
-        <textarea id="chatInput" rows="3" placeholder="e.g. Break the tunnel deploy into Ready tasks for the team." required></textarea>
+        <textarea id="chatInput" rows="3" placeholder="e.g. Deep research Cloudflare Tunnel DNS for Jetson." required></textarea>
         <div class="chat-actions">
           <button type="submit" class="btn primary" id="chatSend">Send</button>
           <label class="check-inline"><input type="checkbox" id="chatSeed" checked /> Seed Notion when useful</label>
         </div>
       </form>
+    </section>
+
+    <section class="inbox" aria-labelledby="inboxHeading">
+      <div class="inbox-head">
+        <h2 id="inboxHeading">Email inbox</h2>
+        <button type="button" class="btn compact" id="inboxRefresh">Refresh</button>
+      </div>
+      <p class="section-note" id="inboxNote">Connect Resend receiving so Hawkeye can draft replies. Approve before send (default).</p>
+      <div id="inboxList" class="inbox-list"></div>
     </section>
 
     <details class="ops-panel">
