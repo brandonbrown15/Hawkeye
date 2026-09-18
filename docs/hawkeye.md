@@ -102,17 +102,23 @@ So Hawkeye comes back when the box powers on:
 ```bash
 ./scripts/install_hawkeye_autostart.sh
 # enables hawkeye-ui.service (+ linger so it starts without a login)
+# enables hawkeye-update.timer (pull GitHub every 5 min + restart UI/LLM)
 # enables ollama.service when present
 # enables hawkeye-tunnel.service when cloudflared + config/token exist
 ```
 
 `bootstrap_jetson.sh` runs this automatically (skip with `SKIP_AUTOSTART=1`).
 
+From the laptop UI: **Account → Machine** sets tunnel token, encryption key, update branch, and can force an update.
+
 Check / disable:
 
 ```bash
 systemctl --user status hawkeye-ui.service
+systemctl --user list-timers hawkeye-update.timer
+./scripts/hawkeye_self_update.sh --check
 ./scripts/install_hawkeye_autostart.sh --disable
+# or pause updates only: HAWKEYE_UPDATE_ENABLED=0
 ```
 
 ## 5. Phone use

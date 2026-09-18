@@ -51,15 +51,27 @@ fi
 HOST="${OLLAMA_HOST:-127.0.0.1:11434}"
 MODEL="${OLLAMA_MODEL:-coder-64k}"
 if command -v ollama >/dev/null 2>&1; then pass "ollama CLI"; else bad "ollama not installed"; fi
+if [[ -x /usr/local/lib/ollama/llama-server ]] || [[ -x /usr/lib/ollama/llama-server ]] \
+  || find /usr/local/lib/ollama /usr/lib/ollama -name llama-server -type f 2>/dev/null | grep -q .; then
+  pass "ollama llama-server runner present"
+else
+  bad "ollama llama-server runner missing — ./ollama/install_ollama_jetson.sh (CLI-only installs 500 on chat)"
+fi
 if curl -fsS --max-time 3 "http://${HOST}/api/tags" >/dev/null 2>&1; then
   pass "ollama reachable at $HOST"
-  if curl -fsS "http://${HOST}/api/tags" | grep -q "\"${MODEL}\""; then
+  tags_json="$(curl -fsS --max-time 5 "http://${HOST}/api/tags" 2>/dev/null || echo '{}')"
+  if echo "$tags_json" | grep -Eq "\"name\"[[:space:]]*:[[:space:]]*\"${MODEL}(:[^\"]*)?\""; then
     pass "model $MODEL present"
+  elif command -v ollama >/dev/null 2>&1 && ollama list 2>/dev/null | awk 'NR>1{print $1}' | grep -Eq "^${MODEL}(:|$)"; then
+    pass "model $MODEL present (ollama list)"
   else
-    bad "model $MODEL missing — run ./ollama/create_coder_64k.sh"
+    bad "model $MODEL missing — run ./ollama/ensure_ollama.sh --restart && ./ollama/create_coder_64k.sh"
+    if [[ -n "${OLLAMA_MODELS:-}" ]]; then
+      warn_msg "OLLAMA_MODELS=$OLLAMA_MODELS — if you created the model before setting this, restart Ollama then recreate"
+    fi
   fi
 else
-  bad "ollama not reachable at http://${HOST}"
+  bad "ollama not reachable at http://${HOST} — run ./ollama/ensure_ollama.sh"
 fi
 
 # Hermes
@@ -80,7 +92,10 @@ else
   bad "gh missing — run ./bootstrap/03_install_gh.sh"
 fi
 
-WS="${WORKSPACE_ROOT:-$HOME/workspaces}"
+WS="$(bash "$ROOT/scripts/resolve_workspace_root.sh" 2>/dev/null || echo "${WORKSPACE_ROOT:-$HOME/workspaces}")"
+if [[ -n "${WORKSPACE_ROOT:-}" && "$WORKSPACE_ROOT" == /opt/* && ! -w "${WORKSPACE_ROOT}" ]]; then
+  warn_msg "WORKSPACE_ROOT=$WORKSPACE_ROOT not writable — will use $WS (run ./scripts/clone_workspaces.sh to persist)"
+fi
 if [[ -n "${WORKSPACE_REPOS:-}" ]]; then
   pass "WORKSPACE_REPOS set"
   missing_ws=0

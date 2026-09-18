@@ -108,9 +108,17 @@ def research(query: str, *, limit: int = 5) -> ResearchResult:
     if not query:
         return ResearchResult(query="", error="empty query")
 
-    if os.environ.get("BRAVE_SEARCH_API_KEY", "").strip():
+    brave_key = ""
+    try:
+        from ui import connections
+
+        brave_key = connections.resolve_secret("brave", "api_key")
+    except Exception:  # noqa: BLE001
+        brave_key = os.environ.get("BRAVE_SEARCH_API_KEY", "").strip()
+
+    if brave_key:
         try:
-            return _brave_search(query, limit=limit)
+            return _brave_search(query, limit=limit, api_key=brave_key)
         except Exception as e:  # noqa: BLE001
             brave_err = str(e)
     else:
@@ -125,8 +133,10 @@ def research(query: str, *, limit: int = 5) -> ResearchResult:
         return ResearchResult(query=query, error=err)
 
 
-def _brave_search(query: str, *, limit: int) -> ResearchResult:
-    key = os.environ["BRAVE_SEARCH_API_KEY"].strip()
+def _brave_search(query: str, *, limit: int, api_key: str | None = None) -> ResearchResult:
+    key = (api_key or os.environ.get("BRAVE_SEARCH_API_KEY", "")).strip()
+    if not key:
+        raise RuntimeError("BRAVE_SEARCH_API_KEY missing")
     params = urllib.parse.urlencode({"q": query, "count": max(1, min(limit, 10))})
     req = urllib.request.Request(
         f"https://api.search.brave.com/res/v1/web/search?{params}",

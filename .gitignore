@@ -37,4 +37,7 @@ state/
 
 # Hawkeye personal memory (SSD) — never commit
 **/hawkeye/memory/
+**/hawkeye/accounts/
+**/hawkeye/mail/
+state/hawkeye-accounts/
 memories.jsonl

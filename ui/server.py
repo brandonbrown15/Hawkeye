@@ -83,6 +83,15 @@ def has_env(name: str) -> bool:
     return bool(os.environ.get(name, "").strip())
 
 
+def _ready_secret(provider: str, field: str) -> bool:
+    try:
+        from ui import connections
+
+        return connections.has_secret(provider, field)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def gh_authed() -> bool:
     try:
         r = subprocess.run(
@@ -112,7 +121,12 @@ def readiness() -> dict[str, Any]:
 
     checks = [
         {"id": "env", "label": ".env present", "ok": (ROOT / ".env").exists(), "hint": "Run ./start"},
-        {"id": "notion", "label": "Notion connected", "ok": has_env("NOTION_TOKEN"), "hint": "./scripts/connect_notion.sh"},
+        {
+            "id": "notion",
+            "label": "Notion connected",
+            "ok": _ready_secret("notion", "token"),
+            "hint": "Account → Connections → Notion (or ./scripts/connect_notion.sh)",
+        },
         {
             "id": "hub",
             "label": "Notion hub / DBs",
@@ -122,23 +136,31 @@ def readiness() -> dict[str, Any]:
         {
             "id": "github",
             "label": "GitHub token",
-            "ok": has_env("GITHUB_TOKEN") or gh_authed(),
-            "hint": "./scripts/auth_github.sh",
+            "ok": _ready_secret("github", "token") or gh_authed(),
+            "hint": "Account → Connections → GitHub (or ./scripts/auth_github.sh)",
         },
         {"id": "hermes", "label": "Hermes CLI", "ok": hermes_ok, "hint": "./hermes/install_hermes.sh"},
         {"id": "ollama", "label": f"Ollama ({model})", "ok": ollama_ok, "hint": "./ollama/install_ollama_jetson.sh"},
         {
             "id": "cursor",
             "label": "Cursor webhook",
-            "ok": local_only or (has_env("CURSOR_WEBHOOK_URL") and "stub" not in cursor_cmd),
-            "hint": "Set CURSOR_WEBHOOK_URL (or keep LOCAL_ONLY=1)",
+            "ok": local_only
+            or (
+                _ready_secret("cursor", "webhook_url")
+                and "stub" not in cursor_cmd
+            ),
+            "hint": "Account → Connections → Cursor (or keep LOCAL_ONLY=1)",
             "optional": True,
         },
         {
             "id": "grok",
             "label": "Grok Bot webhook",
-            "ok": local_only or (has_env("GROK_BOT_WEBHOOK_URL") and "stub" not in grok_cmd),
-            "hint": "Set GROK_BOT_WEBHOOK_URL (or keep LOCAL_ONLY=1)",
+            "ok": local_only
+            or (
+                _ready_secret("grok", "webhook_url")
+                and "stub" not in grok_cmd
+            ),
+            "hint": "Account → Connections → Grok (or keep LOCAL_ONLY=1)",
             "optional": True,
         },
         {
@@ -166,7 +188,14 @@ def readiness() -> dict[str, Any]:
             "id": "research",
             "label": "Web research",
             "ok": env_truthy("HAWKEYE_RESEARCH_ENABLED", "1"),
-            "hint": "Optional BRAVE_SEARCH_API_KEY; else DuckDuckGo HTML",
+            "hint": "Account → Connections → Brave Search (optional); else DuckDuckGo HTML",
+            "optional": True,
+        },
+        {
+            "id": "auto_update",
+            "label": "Jetson auto-update timer",
+            "ok": (ROOT / "scripts" / "hawkeye_self_update.sh").is_file(),
+            "hint": "./scripts/install_hawkeye_autostart.sh (hawkeye-update.timer every 5 min)",
             "optional": True,
         },
     ]
@@ -416,10 +445,12 @@ def _webhook_chat(url: str, token: str, payload: dict[str, Any], label: str) -> 
     return str(data)
 
 
-def _cloud_chat(message: str, local_reply: str) -> tuple[str, str]:
+def _cloud_chat(message: str, local_reply: str, *, email: str | None = None) -> tuple[str, str]:
     """Escalate hard asks: Cursor → Grok Bot → API keys. Returns (reply, provider)."""
     import json as _json
     import urllib.request
+
+    from ui import connections
 
     name = ui_auth.product_name()
     prompt = (
@@ -437,19 +468,23 @@ def _cloud_chat(message: str, local_reply: str) -> tuple[str, str]:
     }
 
     prefer = os.environ.get("AUTOCODE_CLOUD_PREFERENCE", "cursor").strip().lower()
-    cursor_url = os.environ.get("CURSOR_WEBHOOK_URL", "").strip()
-    grok_url = os.environ.get("GROK_BOT_WEBHOOK_URL", "").strip()
+    cursor_url = connections.resolve_secret("cursor", "webhook_url", email=email)
+    grok_url = connections.resolve_secret("grok", "webhook_url", email=email)
+    cursor_tok = connections.resolve_secret("cursor", "webhook_token", email=email) or connections.resolve_secret(
+        "cursor", "api_key", email=email
+    )
+    grok_tok = connections.resolve_secret("grok", "webhook_token", email=email)
     order: list[tuple[str, str, str]] = []
     if prefer == "grok":
         if grok_url:
-            order.append(("Grok Bot", grok_url, os.environ.get("GROK_BOT_WEBHOOK_TOKEN", "")))
+            order.append(("Grok Bot", grok_url, grok_tok))
         if cursor_url:
-            order.append(("Cursor", cursor_url, os.environ.get("CURSOR_WEBHOOK_TOKEN") or os.environ.get("CURSOR_API_KEY", "")))
+            order.append(("Cursor", cursor_url, cursor_tok))
     else:
         if cursor_url:
-            order.append(("Cursor", cursor_url, os.environ.get("CURSOR_WEBHOOK_TOKEN") or os.environ.get("CURSOR_API_KEY", "")))
+            order.append(("Cursor", cursor_url, cursor_tok))
         if grok_url:
-            order.append(("Grok Bot", grok_url, os.environ.get("GROK_BOT_WEBHOOK_TOKEN", "")))
+            order.append(("Grok Bot", grok_url, grok_tok))
 
     errors: list[str] = []
     for label, url, token in order:
@@ -458,7 +493,8 @@ def _cloud_chat(message: str, local_reply: str) -> tuple[str, str]:
         except Exception as e:  # noqa: BLE001
             errors.append(f"{label}: {e}")
 
-    if os.environ.get("ANTHROPIC_API_KEY"):
+    anthropic = connections.resolve_secret("claude", "api_key", email=email)
+    if anthropic:
         body = {
             "model": os.environ.get("AUTOCODE_CLAUDE_MODEL", "claude-sonnet-4-20250514"),
             "max_tokens": 1200,
@@ -469,7 +505,7 @@ def _cloud_chat(message: str, local_reply: str) -> tuple[str, str]:
             data=_json.dumps(body).encode(),
             method="POST",
             headers={
-                "x-api-key": os.environ["ANTHROPIC_API_KEY"],
+                "x-api-key": anthropic,
                 "anthropic-version": "2023-06-01",
                 "content-type": "application/json",
             },
@@ -479,7 +515,8 @@ def _cloud_chat(message: str, local_reply: str) -> tuple[str, str]:
         parts = data.get("content") or []
         text = " ".join(p.get("text", "") for p in parts if isinstance(p, dict))
         return text or "(empty Claude reply)", "Claude"
-    if os.environ.get("OPENROUTER_API_KEY"):
+    openrouter = connections.resolve_secret("openrouter", "api_key", email=email)
+    if openrouter:
         body = {
             "model": os.environ.get("AUTOCODE_OPENROUTER_MODEL", "x-ai/grok-2"),
             "messages": [
@@ -492,14 +529,15 @@ def _cloud_chat(message: str, local_reply: str) -> tuple[str, str]:
             data=_json.dumps(body).encode(),
             method="POST",
             headers={
-                "Authorization": f"Bearer {os.environ['OPENROUTER_API_KEY']}",
+                "Authorization": f"Bearer {openrouter}",
                 "Content-Type": "application/json",
             },
         )
         with urllib.request.urlopen(req, timeout=120) as resp:
             data = _json.loads(resp.read().decode())
         return data["choices"][0]["message"]["content"], "OpenRouter"
-    if os.environ.get("XAI_API_KEY") and not env_truthy("AUTOCODE_DISABLE_METERED_GROK", "1"):
+    xai = connections.resolve_secret("grok", "api_key", email=email)
+    if xai and not env_truthy("AUTOCODE_DISABLE_METERED_GROK", "1"):
         body = {
             "model": os.environ.get("AUTOCODE_GROK_MODEL", "grok-2-latest"),
             "messages": [
@@ -512,7 +550,7 @@ def _cloud_chat(message: str, local_reply: str) -> tuple[str, str]:
             data=_json.dumps(body).encode(),
             method="POST",
             headers={
-                "Authorization": f"Bearer {os.environ['XAI_API_KEY']}",
+                "Authorization": f"Bearer {xai}",
                 "Content-Type": "application/json",
             },
         )
@@ -521,8 +559,8 @@ def _cloud_chat(message: str, local_reply: str) -> tuple[str, str]:
         return data["choices"][0]["message"]["content"], "Grok API"
 
     hint = (
-        "No premium provider configured. Set CURSOR_WEBHOOK_URL and/or GROK_BOT_WEBHOOK_URL "
-        "(recommended), or an API key. Local reply retained."
+        "No premium provider configured. Add Cursor / Grok / Claude under "
+        "Account → Connections (recommended), or set machine .env webhooks. Local reply retained."
     )
     if errors:
         hint += " Webhook errors: " + "; ".join(errors)
@@ -604,10 +642,13 @@ def _persist_memory(
         return None
 
 
-def handle_chat(message: str, seed_notion: bool = True) -> dict[str, Any]:
+def handle_chat(message: str, seed_notion: bool = True, *, email: str | None = None) -> dict[str, Any]:
     message = (message or "").strip()
     if not message:
         return {"ok": False, "error": "message required"}
+    from ui import connections
+
+    connections.set_request_user(email)
     stay_local = ui_auth.personal_local_only()
     name = ui_auth.product_name()
     memory_prompt, memory_hits = _memory_context(message)
@@ -652,7 +693,7 @@ def handle_chat(message: str, seed_notion: bool = True) -> dict[str, Any]:
                 enriched = (
                     f"{message}\n\n--- context ---\n{memory_prompt}\n{research_prompt}".strip()
                 )
-            cloud_reply, provider = _cloud_chat(enriched, local_reply)
+            cloud_reply, provider = _cloud_chat(enriched, local_reply, email=email)
         except Exception as e:  # noqa: BLE001
             cloud_reply = f"(cloud escalate failed: {e})"
             provider = "error"
@@ -776,22 +817,24 @@ def handle_chat(message: str, seed_notion: bool = True) -> dict[str, Any]:
 
 def handle_list_boards() -> dict[str, Any]:
     from notion import pm as notion_pm
+    from ui import connections
 
     boards = [b.to_dict() for b in notion_pm.list_boards()]
     return {
         "ok": True,
         "boards": boards,
         "projects": boards,
-        "notion_connected": bool(os.environ.get("NOTION_TOKEN", "").strip()),
+        "notion_connected": connections.has_secret("notion", "token"),
         "mock": env_truthy("HAWKEYE_PM_MOCK"),
     }
 
 
 def handle_list_tasks(board_id: str, status: str | None, limit: int) -> dict[str, Any]:
     from notion import pm as notion_pm
+    from ui import connections
 
     board_id = (board_id or "hawkeye").strip() or "hawkeye"
-    token_present = bool(os.environ.get("NOTION_TOKEN", "").strip())
+    token_present = connections.has_secret("notion", "token")
     force_mock = env_truthy("HAWKEYE_PM_MOCK")
     try:
         if force_mock or not token_present:
@@ -893,6 +936,21 @@ class Handler(BaseHTTPRequestHandler):
     def _session_token(self) -> str | None:
         return ui_auth.parse_session_cookie(self.headers.get("Cookie"))
 
+    def _current_user(self) -> str | None:
+        user = ui_auth.session_user(self._session_token())
+        if user:
+            return user
+        if not ui_auth.private_mode_enabled():
+            return "open@local"
+        return None
+
+    def _require_user(self) -> str | None:
+        user = self._current_user()
+        if user:
+            return user
+        self._send(*json_response({"ok": False, "error": "login required"}, 401))
+        return None
+
     def _wants_secure_cookie(self) -> bool:
         if env_truthy("AUTOCODE_UI_SECURE"):
             return True
@@ -922,6 +980,18 @@ class Handler(BaseHTTPRequestHandler):
             return False
         self._send(*json_response({"ok": False, "error": "login required"}, 401))
         return False
+
+    def _bind_request_user(self) -> None:
+        try:
+            from ui import connections
+
+            user = self._current_user()
+            if user and user != "open@local":
+                connections.set_request_user(user)
+            else:
+                connections.set_request_user(None)
+        except Exception:  # noqa: BLE001
+            pass
 
     def do_GET(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
@@ -954,6 +1024,15 @@ class Handler(BaseHTTPRequestHandler):
             )
             return self._static(name, ctype)
         if path == "/api/auth":
+            user = self._current_user() if self._authed() or not ui_auth.private_mode_enabled() else None
+            profile = None
+            if user and user != "open@local":
+                try:
+                    from ui import accounts
+
+                    profile = accounts.get_profile(user)
+                except Exception:  # noqa: BLE001
+                    profile = None
             return self._send(
                 *json_response(
                     {
@@ -964,6 +1043,8 @@ class Handler(BaseHTTPRequestHandler):
                         "public_host": ui_auth.public_host(),
                         "allowed_email_domain": ui_auth.allowed_email_domain(),
                         "authed": self._authed(),
+                        "user": user if user != "open@local" else None,
+                        "profile": profile,
                     }
                 )
             )
@@ -973,10 +1054,72 @@ class Handler(BaseHTTPRequestHandler):
                 return
         elif not self._require_session(path, html=True):
             return
+        self._bind_request_user()
         if path == "/api/status":
             return self._send(*json_response(snapshot()))
         if path == "/api/ready":
             return self._send(*json_response(readiness()))
+        if path == "/api/machine":
+            user = self._require_user()
+            if not user:
+                return
+            from ui import machine_settings
+
+            return self._send(*json_response(machine_settings.status(user)))
+        if path == "/api/me":
+            user = self._require_user()
+            if not user:
+                return
+            from ui import accounts
+
+            return self._send(*json_response({"ok": True, "profile": accounts.get_profile(user)}))
+        if path == "/api/users":
+            user = self._require_user()
+            if not user:
+                return
+            from ui import accounts
+
+            return self._send(*json_response({"ok": True, "users": accounts.list_directory()}))
+        if path == "/api/connections":
+            user = self._require_user()
+            if not user:
+                return
+            from ui import connections
+
+            return self._send(*json_response(connections.list_connections(user)))
+        if path == "/api/account/projects":
+            user = self._require_user()
+            if not user:
+                return
+            from ui import team_projects
+
+            return self._send(*json_response(team_projects.list_projects(user)))
+        if path.startswith("/api/account/projects/"):
+            user = self._require_user()
+            if not user:
+                return
+            from ui import team_projects
+
+            pid = path.split("/api/account/projects/", 1)[1].strip("/")
+            try:
+                return self._send(*json_response(team_projects.get_project(user, pid)))
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 404))
+        if path == "/api/messages/threads":
+            user = self._require_user()
+            if not user:
+                return
+            from ui import messages
+
+            return self._send(*json_response(messages.list_threads(user)))
+        if path.startswith("/api/messages/threads/"):
+            user = self._require_user()
+            if not user:
+                return
+            from ui import messages
+
+            tid = path.split("/api/messages/threads/", 1)[1].strip("/")
+            return self._send(*json_response(messages.get_thread(user, tid)))
         if path == "/api/logs":
             return self._send(*json_response(latest_log_tail()))
         if path == "/api/demo":
@@ -1045,8 +1188,28 @@ class Handler(BaseHTTPRequestHandler):
                         401,
                     )
                 )
+            # Optional first-time profile fields on login.
+            if any(k in data for k in ("first_name", "last_name", "employee_number")):
+                try:
+                    from ui import accounts
+
+                    accounts.update_profile(
+                        ui_auth.session_user(sess) or email,
+                        first_name=str(data.get("first_name") or "") or None,
+                        last_name=str(data.get("last_name") or "") or None,
+                        employee_number=str(data.get("employee_number") or "") or None,
+                    )
+                except Exception as e:  # noqa: BLE001
+                    print(f"[ui] profile update on login failed: {e}")
+            profile = None
+            try:
+                from ui import accounts
+
+                profile = accounts.get_profile(ui_auth.session_user(sess) or email)
+            except Exception:  # noqa: BLE001
+                profile = None
             return self._send(
-                *json_response({"ok": True, "token": TOKEN}),
+                *json_response({"ok": True, "token": TOKEN, "profile": profile}),
                 extra_headers=[
                     (
                         "Set-Cookie",
@@ -1066,6 +1229,186 @@ class Handler(BaseHTTPRequestHandler):
             return
         if not self._ok_token(data):
             return self._send(*json_response({"ok": False, "error": "bad token"}, 403))
+        self._bind_request_user()
+        if path == "/api/me":
+            user = self._require_user()
+            if not user:
+                return
+            from ui import accounts
+
+            try:
+                profile = accounts.update_profile(
+                    user,
+                    first_name=None if "first_name" not in data else str(data.get("first_name") or ""),
+                    last_name=None if "last_name" not in data else str(data.get("last_name") or ""),
+                    employee_number=None
+                    if "employee_number" not in data
+                    else str(data.get("employee_number") or ""),
+                )
+                return self._send(*json_response({"ok": True, "profile": profile}))
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
+        if path.startswith("/api/connections/"):
+            user = self._require_user()
+            if not user:
+                return
+            from ui import connections
+
+            provider = path.split("/api/connections/", 1)[1].strip("/").lower()
+            action = str(data.get("action") or "connect").lower()
+            try:
+                if action in ("disconnect", "delete", "revoke"):
+                    out = connections.disconnect(user, provider)
+                else:
+                    secrets_in = data.get("secrets") if isinstance(data.get("secrets"), dict) else {}
+                    # Also accept flat field names on the body.
+                    for field in connections.PROVIDER_META.get(provider, {}).get("fields", []):
+                        if field in data and field not in secrets_in:
+                            secrets_in[field] = data.get(field)
+                    out = connections.set_connection(
+                        user,
+                        provider,
+                        secrets={k: str(v) for k, v in secrets_in.items()},
+                        account_label=str(data.get("account_label") or "") or None,
+                    )
+                return self._send(*json_response(out))
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
+        if path == "/api/account/projects":
+            user = self._require_user()
+            if not user:
+                return
+            from ui import team_projects
+
+            try:
+                return self._send(
+                    *json_response(
+                        team_projects.create_project(
+                            user,
+                            name=str(data.get("name") or ""),
+                            description=str(data.get("description") or ""),
+                            notion_board_id=str(data.get("notion_board_id") or ""),
+                        )
+                    )
+                )
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
+        if path.startswith("/api/account/projects/") and path.endswith("/share"):
+            user = self._require_user()
+            if not user:
+                return
+            from ui import team_projects
+
+            pid = path[len("/api/account/projects/") : -len("/share")].strip("/")
+            try:
+                return self._send(
+                    *json_response(
+                        team_projects.share_project(
+                            user,
+                            pid,
+                            member_email=str(data.get("email") or data.get("member_email") or ""),
+                            role=str(data.get("role") or "editor"),
+                        )
+                    )
+                )
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
+        if path.startswith("/api/account/projects/") and path.endswith("/unshare"):
+            user = self._require_user()
+            if not user:
+                return
+            from ui import team_projects
+
+            pid = path[len("/api/account/projects/") : -len("/unshare")].strip("/")
+            try:
+                return self._send(
+                    *json_response(
+                        team_projects.unshare_project(
+                            user,
+                            pid,
+                            str(data.get("email") or data.get("member_email") or ""),
+                        )
+                    )
+                )
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
+        if path.startswith("/api/account/projects/") and (
+            str(data.get("_method") or "").upper() == "DELETE"
+            or str(data.get("action") or "").lower() == "delete"
+        ):
+            user = self._require_user()
+            if not user:
+                return
+            from ui import team_projects
+
+            pid = path.split("/api/account/projects/", 1)[1].strip("/")
+            try:
+                return self._send(*json_response(team_projects.delete_project(user, pid)))
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
+        if path.startswith("/api/account/projects/"):
+            user = self._require_user()
+            if not user:
+                return
+            from ui import team_projects
+
+            pid = path.split("/api/account/projects/", 1)[1].strip("/")
+            try:
+                return self._send(
+                    *json_response(
+                        team_projects.update_project(
+                            user,
+                            pid,
+                            name=None if "name" not in data else str(data.get("name") or ""),
+                            description=None
+                            if "description" not in data
+                            else str(data.get("description") or ""),
+                            notion_board_id=None
+                            if "notion_board_id" not in data
+                            else str(data.get("notion_board_id") or ""),
+                        )
+                    )
+                )
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
+        if path == "/api/messages":
+            user = self._require_user()
+            if not user:
+                return
+            from ui import messages
+
+            try:
+                return self._send(
+                    *json_response(
+                        messages.send_message(
+                            user,
+                            str(data.get("to") or data.get("email") or ""),
+                            str(data.get("body") or data.get("message") or ""),
+                        )
+                    )
+                )
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
+        if path.startswith("/api/messages/threads/") and path.endswith("/read"):
+            user = self._require_user()
+            if not user:
+                return
+            from ui import messages
+
+            tid = path[len("/api/messages/threads/") : -len("/read")].strip("/")
+            return self._send(*json_response(messages.mark_thread_read(user, tid)))
+        if path == "/api/machine":
+            user = self._require_user()
+            if not user:
+                return
+            from ui import machine_settings
+
+            try:
+                return self._send(*json_response(machine_settings.apply(user, data)))
+            except PermissionError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 403))
+            except ValueError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 400))
         if path == "/api/control":
             return self._send(
                 *json_response(
@@ -1083,12 +1426,15 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(*json_response(start_work_cycle(force=force)))
 
         if path == "/api/chat":
+            user = self._current_user()
+            email = user if user and user != "open@local" else None
             return self._send(
                 *json_response(
                     handle_chat(
                         str(data.get("message") or ""),
                         seed_notion=str(data.get("seed_notion", "1")).lower()
                         not in ("0", "false", "no"),
+                        email=email,
                     )
                 )
             )

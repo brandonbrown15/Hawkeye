@@ -1,13 +1,28 @@
 #!/usr/bin/env bash
-# Print how to clone workspace repos from WORKSPACE_REPOS in .env.
+# Clone workspace repos from WORKSPACE_REPOS in .env into a writable WORKSPACE_ROOT.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck disable=SC1091
 [[ -f "$ROOT/.env" ]] && source "$ROOT/.env"
 
-WS="${WORKSPACE_ROOT:-$HOME/workspaces}"
+WS="$(bash "$ROOT/scripts/resolve_workspace_root.sh")"
 mkdir -p "$WS"
+
+# Persist the resolved path when .env still points at an unwritable /opt default.
+ENV_FILE="$ROOT/.env"
+if [[ -f "$ENV_FILE" ]]; then
+  cur="$(grep -E '^WORKSPACE_ROOT=' "$ENV_FILE" 2>/dev/null | tail -1 | cut -d= -f2- || true)"
+  cur="${cur/#\~/$HOME}"
+  if [[ -z "$cur" || "$cur" != "$WS" ]]; then
+    if grep -q '^WORKSPACE_ROOT=' "$ENV_FILE" 2>/dev/null; then
+      grep -v '^WORKSPACE_ROOT=' "$ENV_FILE" >"${ENV_FILE}.tmp" || true
+      mv "${ENV_FILE}.tmp" "$ENV_FILE"
+    fi
+    echo "WORKSPACE_ROOT=$WS" >>"$ENV_FILE"
+    echo "Updated .env WORKSPACE_ROOT=$WS"
+  fi
+fi
 
 echo "Workspace root: $WS"
 if [[ -z "${WORKSPACE_REPOS:-}" ]]; then

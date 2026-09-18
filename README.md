@@ -19,6 +19,7 @@ This is **not** the public [Autocode](https://github.com/brandonbrown15/Autocode
 | **Web research** | Lookup + citations in chat |
 | **Cursor / Grok** | Escalate strenuous asks via webhooks |
 | **Login** | `@brownhawke.engineering` work emails only |
+| **Per-user accounts** | Profile, encrypted connections, shared projects, DMs |
 | **Domain** | Cloudflare Tunnel → `https://hawkeye.brownhawke.engineering` |
 | **Boot auto-start** | UI (+ tunnel) come back when the Jetson powers on |
 
@@ -328,6 +329,7 @@ More: [docs/architecture.md](docs/architecture.md) · [docs/how-ai-talks.md](doc
 | [docs/ui.md](docs/ui.md) | Dashboard + remote access |
 | [docs/memory.md](docs/memory.md) | Vector memory |
 | [docs/research.md](docs/research.md) | Web research |
+| [docs/accounts.md](docs/accounts.md) | Per-user connections, projects, DMs |
 | [docs/security.md](docs/security.md) | Login, tunnel, memory privacy |
 | [docs/notion-setup.md](docs/notion-setup.md) | Notion provision / seed |
 | [docs/continuous.md](docs/continuous.md) | Always-on drain |

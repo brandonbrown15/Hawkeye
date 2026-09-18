@@ -31,12 +31,97 @@
         <span class="pulse" aria-hidden="true"></span>
         <span id="phaseLabel">idle</span>
       </div>
+      <button type="button" class="btn ghost compact" id="messagesBtn" hidden>
+        Messages <span class="msg-badge" id="msgBadge" hidden>0</span>
+      </button>
+      <button type="button" class="btn ghost compact" id="accountBtn" hidden>Account</button>
       <button type="button" class="btn ghost compact" id="logoutBtn" hidden>Sign out</button>
     </div>
   </header>
 
+  <dialog class="account-dialog" id="accountDialog">
+    <form method="dialog" class="account-panel">
+      <header class="account-panel-head">
+        <h2>Your account</h2>
+        <button type="submit" class="btn ghost compact" value="close">Close</button>
+      </header>
+      <nav class="account-tabs" role="tablist">
+        <button type="button" class="account-tab is-active" data-tab="profile">Profile</button>
+        <button type="button" class="account-tab" data-tab="connections">Connections</button>
+        <button type="button" class="account-tab" data-tab="machine">Machine</button>
+        <button type="button" class="account-tab" data-tab="projects">Projects</button>
+        <button type="button" class="account-tab" data-tab="messages">Messages</button>
+      </nav>
+      <section class="account-pane is-active" data-pane="profile">
+        <p class="section-note">First name, last name, and employee number are required for your Hawkeye profile.</p>
+        <label for="profFirst">First name</label>
+        <input id="profFirst" />
+        <label for="profLast">Last name</label>
+        <input id="profLast" />
+        <label for="profEmp">Employee number</label>
+        <input id="profEmp" placeholder="BH-0042" />
+        <p class="meta" id="profEmail"></p>
+        <button type="button" class="btn primary compact" id="profSave">Save profile</button>
+      </section>
+      <section class="account-pane" data-pane="connections">
+        <p class="section-note">Connect every integration from this browser (laptop or phone). Secrets encrypt for your account and power chat, boards, and escalate — machine .env remains a fallback for overnight autopilot.</p>
+        <p class="meta" id="connEncryptNote"></p>
+        <div id="connectionsList" class="connections-list"></div>
+      </section>
+      <section class="account-pane" data-pane="machine">
+        <p class="section-note">Jetson-wide settings: Cloudflare tunnel install token, encryption key, and GitHub auto-update. Changes write to the machine `.env` and keep services running via autostart.</p>
+        <p class="meta" id="machineStatusNote"></p>
+        <label for="machTunnel">Cloudflare Tunnel install token</label>
+        <input id="machTunnel" type="password" autocomplete="off" placeholder="(saved — enter to replace)" />
+        <label for="machMemKey">HAWKEYE_MEMORY_KEY (encrypt secrets + memory)</label>
+        <input id="machMemKey" type="password" autocomplete="off" placeholder="(set once — enter to set/rotate)" />
+        <label class="inline-check"><input type="checkbox" id="machForceMem" /> Rotate memory key even if already set</label>
+        <label for="machBranch">Auto-update branch</label>
+        <input id="machBranch" placeholder="main or cursor/hawkeye-…" />
+        <label class="inline-check"><input type="checkbox" id="machUpdateOn" checked /> Pull GitHub every 5 minutes + restart UI</label>
+        <label for="machHost">Public host</label>
+        <input id="machHost" placeholder="hawkeye.brownhawke.engineering" />
+        <div class="conn-actions">
+          <button type="button" class="btn primary compact" id="machSave">Save machine settings</button>
+          <button type="button" class="btn compact" id="machForceUpdate">Force update now</button>
+        </div>
+        <pre class="machine-log" id="machineLog" hidden></pre>
+      </section>
+      <section class="account-pane" data-pane="projects">
+        <p class="section-note">Save projects to your account, then share them with teammates who also have Hawkeye logins.</p>
+        <form id="newProjectForm" class="inline-form">
+          <input id="newProjectName" placeholder="Project name" required />
+          <button type="submit" class="btn primary compact">Create</button>
+        </form>
+        <div id="accountProjects" class="account-projects"></div>
+      </section>
+      <section class="account-pane" data-pane="messages">
+        <p class="section-note">Direct messages between BrownHawke coworkers on Hawkeye.</p>
+        <div class="dm-layout">
+          <aside class="dm-threads" id="dmThreads"></aside>
+          <div class="dm-chat">
+            <div class="dm-with" id="dmWith">Select a coworker</div>
+            <div class="dm-log" id="dmLog"></div>
+            <form id="dmForm" class="dm-form" hidden>
+              <textarea id="dmInput" rows="2" placeholder="Write a message…" required></textarea>
+              <button type="submit" class="btn primary compact">Send</button>
+            </form>
+            <form id="dmStartForm" class="inline-form">
+              <select id="dmCoworker"></select>
+              <button type="submit" class="btn compact">Open chat</button>
+            </form>
+          </div>
+        </div>
+      </section>
+    </form>
+  </dialog>
+
   <main class="pm-main">
     <section class="pm-toolbar" aria-label="Board controls">
+      <div class="view-tabs" role="tablist">
+        <button type="button" class="view-tab is-active" data-view="notion">Notion boards</button>
+        <button type="button" class="view-tab" data-view="mine">My projects</button>
+      </div>
       <div class="board-tabs" id="boardTabs" role="tablist"></div>
       <div class="pm-filters">
         <label class="sr-only" for="statusFilter">Status</label>
@@ -57,14 +142,19 @@
 
     <p class="pm-banner" id="pmBanner" hidden></p>
 
-    <section class="pm-summary" aria-label="Board summary">
+    <section class="pm-summary" aria-label="Board summary" id="notionSummary">
       <div class="count-pills" id="countPills"></div>
       <p class="section-note" id="boardMeta">Loading Notion board…</p>
     </section>
 
-    <section class="kanban" aria-labelledby="boardHeading">
+    <section class="kanban" aria-labelledby="boardHeading" id="notionKanban">
       <h1 id="boardHeading" class="sr-only">Project board</h1>
       <div class="kanban-columns" id="kanban"></div>
+    </section>
+
+    <section class="mine-projects" id="mineProjects" hidden>
+      <p class="section-note">Projects you own or that teammates shared with you. Open Account → Projects to create or share.</p>
+      <div id="mineProjectsList" class="account-projects"></div>
     </section>
 
     <aside class="task-drawer" id="taskDrawer" hidden>

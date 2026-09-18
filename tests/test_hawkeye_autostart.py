@@ -15,11 +15,15 @@ class HawkeyeAutostartTests(unittest.TestCase):
     def test_unit_files_exist_and_brand_hawkeye(self) -> None:
         ui = (ROOT / "cron" / "hawkeye-ui.service").read_text()
         tunnel = (ROOT / "cron" / "hawkeye-tunnel.service").read_text()
+        update = (ROOT / "cron" / "hawkeye-update.service").read_text()
+        timer = (ROOT / "cron" / "hawkeye-update.timer").read_text()
         self.assertIn("Hawkeye", ui)
         self.assertIn("scripts/ui.sh", ui)
         self.assertIn("Restart=always", ui)
         self.assertIn("cloudflared", tunnel)
         self.assertIn("hawkeye-ui.service", tunnel)
+        self.assertIn("hawkeye_self_update.sh", update)
+        self.assertIn("OnUnitActiveSec=5min", timer)
 
     def test_installer_rewrites_paths_into_tmpdir(self) -> None:
         script = ROOT / "scripts" / "install_hawkeye_autostart.sh"
