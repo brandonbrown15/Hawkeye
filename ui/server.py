@@ -1046,9 +1046,7 @@ class Handler(BaseHTTPRequestHandler):
         """Return True if the request may proceed."""
         if not ui_auth.private_mode_enabled():
             return True
-        if html and path in _PUBLIC_GET:
-            return True
-        if not html and path in _PUBLIC_POST:
+        if path in _PUBLIC_GET or path in _PUBLIC_POST:
             return True
         if path.startswith("/brand/"):
             return True
