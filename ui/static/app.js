@@ -566,6 +566,8 @@
     });
   }
 
+  let chatHistory = [];
+
   function appendChat(role, text) {
     const log = document.getElementById("chatLog");
     if (!log) return;
@@ -575,6 +577,12 @@
     line.textContent = `${who}: ${text}`;
     log.appendChild(line);
     log.scrollTop = log.scrollHeight;
+    if (role === "you") {
+      chatHistory.push({ role: "user", content: text });
+    } else if (role === "local" || role === "cloud") {
+      chatHistory.push({ role: "assistant", content: text });
+    }
+    if (chatHistory.length > 24) chatHistory = chatHistory.slice(-24);
   }
 
   const chatForm = document.getElementById("chatForm");
@@ -587,12 +595,15 @@
       if (!msg) return;
       const sendBtn = document.getElementById("chatSend");
       sendBtn.disabled = true;
+      // Prior turns only — server adds the current message itself.
+      const prior = chatHistory.slice();
       appendChat("you", msg);
       input.value = "";
       try {
         const data = await post("/api/chat", {
           message: msg,
           seed_notion: !!(seed && seed.checked),
+          history: prior,
         });
         if (data.local_reply) appendChat("local", data.local_reply);
         if (data.escalated && data.cloud_reply) appendChat("cloud", `[${data.provider || "cloud"}] ${data.cloud_reply}`);
