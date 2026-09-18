@@ -11,8 +11,8 @@ WorkingDirectory=/opt/autocode
 EnvironmentFile=-/opt/autocode/.env
 Environment=AUTOCODE_PRODUCT_NAME=Hawkeye
 Environment=AUTOCODE_PRIVATE_MODE=1
-# Wait up to ~60s for Ollama so first boot after power-on is reliable.
-ExecStartPre=/bin/bash -c 'for i in $(seq 1 30); do curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && exit 0; sleep 2; done; echo "Hawkeye: Ollama not ready yet — starting UI anyway"; exit 0'
+# Start/wait for Ollama so chat works after power-on (tunnel alone is not enough).
+ExecStartPre=/bin/bash -c 'if [[ -x ./ollama/ensure_ollama.sh ]]; then ./ollama/ensure_ollama.sh || true; fi; for i in $(seq 1 30); do curl -fsS http://127.0.0.1:11434/api/tags >/dev/null 2>&1 && exit 0; sleep 2; done; echo "Hawkeye: Ollama not ready yet — starting UI anyway"; exit 0'
 ExecStart=/opt/autocode/scripts/ui.sh
 Restart=always
 RestartSec=5

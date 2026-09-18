@@ -109,6 +109,22 @@ class MachineSettingsTests(unittest.TestCase):
         )
         self.assertIn("HAWKEYE_MEMORY_KEY=second-key", self.env_path.read_text(encoding="utf-8"))
 
+    def test_wake_ollama_action(self) -> None:
+        with mock.patch.object(
+            machine_settings,
+            "ensure_ollama",
+            return_value={"ok": True, "reachable": True, "log": "Ollama ready"},
+        ) as wake:
+            with mock.patch.object(machine_settings, "_ollama_reachable", return_value=True):
+                out = machine_settings.apply(
+                    "brandon@brownhawke.engineering",
+                    {"wake_ollama": "1"},
+                )
+        wake.assert_called_once()
+        self.assertIn("wake_ollama_ok", out["applied"])
+        self.assertTrue(out["ollama"]["ok"])
+        self.assertTrue(out["autostart"]["ollama_active"])
+
 
 if __name__ == "__main__":
     unittest.main()

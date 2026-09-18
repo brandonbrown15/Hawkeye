@@ -306,6 +306,27 @@ class UiHelpersTests(unittest.TestCase):
         users = ui_auth.load_users(reload=True)
         self.assertIn("brandon@brownhawke.engineering", users)
 
+    def test_chat_wakes_ollama_on_connection_refused(self) -> None:
+        os.environ["AUTOCODE_PERSONAL_LOCAL_ONLY"] = "1"
+        calls = {"n": 0}
+
+        def flaky_ollama(message: str, system: str, *, history=None):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise OSError("[Errno 111] Connection refused")
+            return "OK — coder is awake"
+
+        with mock.patch.object(ui_server, "_ollama_chat", side_effect=flaky_ollama):
+            with mock.patch(
+                "ui.machine_settings.ensure_ollama",
+                return_value={"ok": True, "reachable": True},
+            ) as wake:
+                out = ui_server.handle_chat("ping", seed_notion=False)
+        wake.assert_called_once()
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["local_reply"], "OK — coder is awake")
+        self.assertEqual(calls["n"], 2)
+
     def test_chat_history_passed_to_ollama(self) -> None:
         os.environ["AUTOCODE_PERSONAL_LOCAL_ONLY"] = "1"
         captured: dict = {}
