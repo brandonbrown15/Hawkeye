@@ -8,6 +8,7 @@
 |---------|--------------|--------|
 | **Notion** | Build Queue, Agent Runs, Escalation Log | Required for live autopilot |
 | **Telegram** | Cycle start / per-task route / pause-abort / digest | `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` |
+| **WhatsApp** | UI-equivalent chat + queue-empty / Blocked / needs-human | Cloud API Connections + [whatsapp.md](whatsapp.md) |
 | **Tailscale + UI** | Live dashboard, controls, **LLM chat** | Install Tailscale; `./scripts/ui.sh --remote` |
 
 Recommended path: **Tailscale** on the Jetson. Notion is the task board; Telegram is the pager; the UI is the live control panel ([ui.md](ui.md)). Always-on coding: [continuous.md](continuous.md).

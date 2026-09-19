@@ -217,6 +217,8 @@ class UiHelpersTests(unittest.TestCase):
             self.assertIn(token, html)
             self.assertIn("localOnlyToggle", html)
             self.assertIn("Local only", html)
+            self.assertIn("no external web", html)
+            self.assertIn("Brave Search", html)
             self.assertIn("connectionsBtn", html)
             self.assertIn("chatEmpty", html)
             self.assertIn("chatStatus", html)
@@ -232,6 +234,9 @@ class UiHelpersTests(unittest.TestCase):
                 settings = json.loads(resp.read().decode())
             self.assertTrue(settings["ok"])
             self.assertFalse(settings["personal_local_only"])
+            self.assertIn("brave_search_configured", settings)
+            self.assertIn("web_search_allowed", settings)
+            self.assertIn("web_search_hint", settings)
 
             body = json.dumps({"personal_local_only": True, "token": token}).encode()
             req = request.Request(
@@ -589,6 +594,188 @@ class UiHelpersTests(unittest.TestCase):
         self.assertTrue(runtime.personal_local_only(brandon))
         self.assertTrue(runtime.personal_local_only(mark))
 
+    def test_chat_identity_prompt_not_brandon_on_jetson(self) -> None:
+        from ui import identity
+        from memory.store import reset_store_for_tests
+
+        os.environ["HAWKEYE_MEMORY_ENABLED"] = "1"
+        os.environ["HAWKEYE_EMBED_FORCE_HASH"] = "1"
+        os.environ["HAWKEYE_RESEARCH_ENABLED"] = "1"
+        os.environ["AUTOCODE_PERSONAL_LOCAL_ONLY"] = "1"
+        reset_store_for_tests(self.tmp / "ident-mem")
+        with mock.patch.object(ui_server, "_ollama_chat", return_value="Hawkeye software.") as ollama:
+            out = ui_server.handle_chat("Who is Brandon?", seed_notion=False)
+        self.assertTrue(out["ok"])
+        system = ollama.call_args[0][1]
+        identity.assert_identity_safe(system)
+        self.assertIn("Brandon Brown", system)
+        self.assertIn("software", system.lower())
+        self.assertIn("human", system.lower())
+        self.assertNotIn("BrownHawke's private assistant engineer", system)
+
+    def test_chat_local_only_skips_web_research(self) -> None:
+        from memory.store import reset_store_for_tests
+
+        brandon = "brandon@brownhawke.engineering"
+        os.environ["HAWKEYE_RESEARCH_ENABLED"] = "1"
+        os.environ["HAWKEYE_MEMORY_ENABLED"] = "1"
+        os.environ["HAWKEYE_EMBED_FORCE_HASH"] = "1"
+        os.environ.pop("BRAVE_SEARCH_API_KEY", None)
+        reset_store_for_tests(self.tmp / "lo-mem")
+        runtime.set_personal_local_only(True, user=brandon)
+        with mock.patch.object(ui_server, "_ollama_chat", return_value="Cannot browse.") as ollama:
+            with mock.patch("research.research") as res:
+                out = ui_server.handle_chat(
+                    "search for Cloudflare Tunnel docs",
+                    seed_notion=False,
+                    email=brandon,
+                )
+        res.assert_not_called()
+        self.assertEqual(out["research"]["skipped"], "local_only")
+        self.assertFalse(out["web_search_allowed"])
+        system = ollama.call_args[0][1]
+        self.assertIn("LOCAL ONLY", system)
+        self.assertNotIn("Web research for:", system)
+
+    def test_chat_brave_from_connections_when_local_only_off(self) -> None:
+        from memory.store import reset_store_for_tests
+        from research.web import ResearchResult, ResearchSource
+        from ui import accounts, connections
+
+        brandon = "brandon@brownhawke.engineering"
+        os.environ["HAWKEYE_ACCOUNTS_DIR"] = str(self.tmp / "acct")
+        os.environ["HAWKEYE_MEMORY_KEY"] = "ready-secret-key"
+        os.environ["HAWKEYE_RESEARCH_ENABLED"] = "1"
+        os.environ["HAWKEYE_RESEARCH_DEEP"] = "0"
+        os.environ["HAWKEYE_MEMORY_ENABLED"] = "1"
+        os.environ["HAWKEYE_EMBED_FORCE_HASH"] = "1"
+        os.environ["AUTOCODE_PERSONAL_LOCAL_ONLY"] = "0"
+        os.environ.pop("BRAVE_SEARCH_API_KEY", None)
+        accounts.clear_cache()
+        reset_store_for_tests(self.tmp / "brave-mem")
+        connections.set_connection(brandon, "brave", secrets={"api_key": "brave-from-vault"})
+        connections.set_request_user(None)
+        runtime.set_personal_local_only(False, user=brandon)
+        fake = ResearchResult(
+            query="search for Cloudflare Tunnel docs",
+            provider="brave",
+            sources=[
+                ResearchSource(
+                    title="Tunnel",
+                    url="https://developers.cloudflare.com/cloudflare-one/",
+                    snippet="Expose services without opening ports.",
+                )
+            ],
+        )
+        with mock.patch.object(ui_server, "_ollama_chat", return_value="Cited the docs.") as ollama:
+            with mock.patch("research.web._brave_search", return_value=fake) as brave:
+                with mock.patch("research.web._enrich_with_pages"):
+                    out = ui_server.handle_chat(
+                        "search for Cloudflare Tunnel docs",
+                        seed_notion=False,
+                        email=brandon,
+                    )
+        brave.assert_called_once()
+        self.assertEqual(brave.call_args.kwargs.get("api_key"), "brave-from-vault")
+        self.assertTrue(out["web_search_allowed"])
+        self.assertTrue(out["brave_search_configured"])
+        self.assertEqual(out["research"]["provider"], "brave")
+        self.assertTrue(out["research"]["sources"])
+        system = ollama.call_args[0][1]
+        self.assertIn("Brave Search", system)
+        self.assertIn("HAVE live web access", system)
+        self.assertIn("https://developers.cloudflare.com", system)
+        self.assertEqual(out["reply_label"], "Brave")
+        self.assertEqual(out["status_label"], "Hawkeye · Brave")
+        self.assertNotEqual(out["status_label"], "Local · Jetson")
+
+    def test_web_search_status_and_settings_flags(self) -> None:
+        from ui import accounts, connections
+
+        brandon = "brandon@brownhawke.engineering"
+        os.environ["HAWKEYE_ACCOUNTS_DIR"] = str(self.tmp / "acct-flags")
+        os.environ["HAWKEYE_MEMORY_KEY"] = "ready-secret-key"
+        os.environ.pop("BRAVE_SEARCH_API_KEY", None)
+        accounts.clear_cache()
+        connections.set_connection(brandon, "brave", secrets={"api_key": "k"})
+        runtime.set_personal_local_only(True, user=brandon)
+        blocked = ui_server.web_search_status(user=brandon)
+        self.assertTrue(blocked["brave_search_configured"])
+        self.assertFalse(blocked["web_search_allowed"])
+        self.assertIn("Local only off", blocked["web_search_hint"])
+        runtime.set_personal_local_only(False, user=brandon)
+        open_ = ui_server.web_search_status(user=brandon)
+        self.assertTrue(open_["web_search_allowed"])
+        self.assertIn("available", open_["web_search_hint"].lower())
+
+    def test_chat_rewrites_no_internet_when_brave_ready(self) -> None:
+        from memory.store import reset_store_for_tests
+        from research.web import ResearchResult, ResearchSource
+        from ui import accounts, connections
+
+        brandon = "brandon@brownhawke.engineering"
+        os.environ["HAWKEYE_ACCOUNTS_DIR"] = str(self.tmp / "acct-noweb")
+        os.environ["HAWKEYE_MEMORY_KEY"] = "ready-secret-key"
+        os.environ["HAWKEYE_RESEARCH_ENABLED"] = "1"
+        os.environ["HAWKEYE_RESEARCH_DEEP"] = "1"
+        os.environ["HAWKEYE_MEMORY_ENABLED"] = "1"
+        os.environ["HAWKEYE_EMBED_FORCE_HASH"] = "1"
+        os.environ["AUTOCODE_PERSONAL_LOCAL_ONLY"] = "0"
+        os.environ.pop("BRAVE_SEARCH_API_KEY", None)
+        accounts.clear_cache()
+        reset_store_for_tests(self.tmp / "noweb-mem")
+        connections.set_connection(brandon, "brave", secrets={"api_key": "brave-from-vault"})
+        runtime.set_personal_local_only(False, user=brandon)
+        fake = ResearchResult(
+            query="do you have internet",
+            provider="brave",
+            sources=[
+                ResearchSource(title="Brave", url="https://brave.com/search/api/", snippet="API"),
+            ],
+        )
+        with mock.patch.object(
+            ui_server,
+            "_ollama_chat",
+            return_value="I have no internet and cannot search the web.",
+        ):
+            with mock.patch("research.web._brave_search", return_value=fake) as brave:
+                with mock.patch("research.web._enrich_with_pages") as enrich:
+                    out = ui_server.handle_chat(
+                        "Do you have internet?",
+                        seed_notion=False,
+                        email=brandon,
+                    )
+        brave.assert_called_once()
+        enrich.assert_not_called()
+        self.assertNotIn("no internet", out["local_reply"].lower())
+        self.assertIn("Brave Search is connected", out["local_reply"])
+        self.assertIn("can search the web", out["local_reply"].lower())
+        self.assertTrue(out["web_search_allowed"])
+        self.assertNotEqual(out["status_label"], "Local · Jetson")
+        self.assertIn("Brave", out["status_label"])
+
+    def test_chat_route_labels_never_jetson_only_when_brave(self) -> None:
+        self.assertEqual(
+            ui_server.chat_route_labels(
+                local_only=True, brave=True, research_payload=None, escalated=False, provider=""
+            )["status_label"],
+            "Local · Jetson",
+        )
+        ready = ui_server.chat_route_labels(
+            local_only=False, brave=True, research_payload=None, escalated=False, provider=""
+        )
+        self.assertEqual(ready["status_label"], "Hawkeye · Brave ready")
+        self.assertNotIn("Jetson", ready["status_label"])
+        used = ui_server.chat_route_labels(
+            local_only=False,
+            brave=True,
+            research_payload={"provider": "brave", "sources": [{"url": "https://x.test"}]},
+            escalated=False,
+            provider="",
+        )
+        self.assertEqual(used["reply_label"], "Brave")
+        self.assertEqual(used["status_label"], "Hawkeye · Brave")
+
     def test_chat_uses_memory_and_research(self) -> None:
         mem_root = self.tmp / "mem"
         os.environ["HAWKEYE_EMBED_FORCE_HASH"] = "1"
@@ -639,6 +826,7 @@ class UiHelpersTests(unittest.TestCase):
         system = ollama.call_args[0][1]
         self.assertIn("Relevant Hawkeye memory", system)
         self.assertIn("Web research", system)
+        self.assertIn("Brandon Brown", system)
         os.environ.pop("HAWKEYE_EMBED_FORCE_HASH", None)
 
     def test_chat_timeout_does_not_wake_ollama(self) -> None:
@@ -724,6 +912,11 @@ class UiHelpersTests(unittest.TestCase):
         self.assertIn("timeoutMs", js)
         self.assertIn("did not reply in time", js)
         self.assertIn("resetChatSend", js)
+        self.assertIn("Web search skipped", js)
+        self.assertIn("off for Brave", js)
+        self.assertIn("status_label", js)
+        self.assertIn("Hawkeye · Brave", js)
+        self.assertIn("data.local_only", js)
         html = (ROOT / "ui/static/index.html").read_text(encoding="utf-8")
         self.assertIn("askHawkeye", html)
         self.assertIn("data-pane=\"board\"", html)

@@ -91,6 +91,11 @@ _RESEARCH_TRIGGERS = (
     "look up",
     "search the web",
     "search online",
+    "search for",
+    "search up",
+    "please search",
+    "can you search",
+    "web search",
     "deep search",
     "deep research",
     "deep web",
@@ -105,6 +110,49 @@ _RESEARCH_TRIGGERS = (
     "browse",
     "who makes",
     "datasheet",
+    "look this up",
+    "look it up",
+    "look that up",
+    "internet",
+    "web access",
+    "go online",
+    "headlines",
+    "what's the news",
+    "whats the news",
+    "breaking news",
+)
+
+# Bare "search …" (not the substring inside "research") so chat actually invokes Brave.
+_SEARCH_VERB_RE = re.compile(r"\bsearch(?:es|ing|ed)?\b", re.IGNORECASE)
+_LOOKUP_RE = re.compile(
+    r"(?:"
+    r"^\s*(?:who|what|when|where|why|how|which)\b"
+    r"|\?$"
+    r"|\b(?:news|headline|weather|stock|price|today|tonight|this week)\b"
+    r")",
+    re.IGNORECASE | re.MULTILINE,
+)
+_WEB_ACCESS_RE = re.compile(
+    r"(?:"
+    r"\b(?:internet|offline|online)\b"
+    r"|web access"
+    r"|can you (?:search|browse|go online)"
+    r"|do you have (?:internet|web|search)"
+    r"|are you (?:offline|online|connected)"
+    r")",
+    re.IGNORECASE,
+)
+_NO_WEB_CLAIM_RE = re.compile(
+    r"(?:"
+    r"(?:don't|do not|doesn't|does not|cannot|can't|can not|no|without|lack(?:s|ing)?)"
+    r".{0,48}(?:internet|web access|online access|browse the web|search the web)"
+    r"|no internet"
+    r"|i(?:'m| am) (?:an? )?(?:local |offline )?(?:model|llm|assistant).{0,40}"
+    r"(?:no |without |cannot |can't )?(?:internet|online|web)"
+    r"|not connected to (?:the )?(?:internet|web)"
+    r"|i (?:don't|do not) have (?:access to )?(?:the )?(?:internet|web)"
+    r")",
+    re.IGNORECASE | re.DOTALL,
 )
 
 _DEEP_TRIGGERS = (
@@ -126,9 +174,55 @@ def wants_research(message: str) -> bool:
         return True
     if any(t in text for t in _RESEARCH_TRIGGERS):
         return True
+    if _SEARCH_VERB_RE.search(text):
+        return True
     if text.startswith("/research ") or text.startswith("research:"):
         return True
+    if _WEB_ACCESS_RE.search(text):
+        return True
     return False
+
+
+def asks_web_access(message: str) -> bool:
+    """Operator is asking whether Hawkeye can reach the web / search."""
+    return bool(_WEB_ACCESS_RE.search(message or ""))
+
+
+def should_research(message: str, *, brave: bool = False) -> bool:
+    """When to call Brave/DDG. Broader if a Brave key is configured."""
+    if wants_research(message):
+        return True
+    if asks_web_access(message):
+        return True
+    text = (message or "").strip()
+    if brave and text and _LOOKUP_RE.search(text):
+        return True
+    return False
+
+
+def wants_deep_explicit(message: str) -> bool:
+    """Deep page-read only when the operator asked — not the env default.
+
+    Interactive chat must stay fast; HAWKEYE_RESEARCH_DEEP=1 used to fetch
+    three pages on every lookup and the 25s UI timeout aborted before Brave
+    results reached the model (which then claimed it had no internet).
+    """
+    text = (message or "").lower()
+    return any(t in text for t in _DEEP_TRIGGERS)
+
+
+def claims_no_web_access(text: str) -> bool:
+    return bool(_NO_WEB_CLAIM_RE.search(text or ""))
+
+
+def scrub_no_web_claims(text: str) -> str:
+    """Drop sentences that falsely deny web access."""
+    raw = (text or "").strip()
+    if not raw:
+        return raw
+    parts = re.split(r"(?<=[.!?])\s+", raw)
+    kept = [p for p in parts if p.strip() and not claims_no_web_access(p)]
+    return " ".join(kept).strip()
 
 
 def wants_deep(message: str) -> bool:
@@ -149,7 +243,53 @@ def _env_int(key: str, default: int) -> int:
         return default
 
 
-def research(query: str, *, limit: int = 5, deep: bool | None = None) -> ResearchResult:
+def brave_configured(*, email: str | None = None) -> bool:
+    """True when Account → Connections or BRAVE_SEARCH_API_KEY has a Brave key."""
+    try:
+        from ui import connections
+
+        if connections.resolve_secret("brave", "api_key", email=email):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return bool(os.environ.get("BRAVE_SEARCH_API_KEY", "").strip())
+
+
+def format_web_policy_for_prompt(*, local_only: bool, brave: bool) -> str:
+    """Tell the local model whether it may treat the web as available."""
+    if local_only:
+        extra = (
+            "Brave Search is configured — the operator must turn Local only off to use it."
+            if brave
+            else "No external web. Add a Brave Search key under Account → Connections after turning Local only off."
+        )
+        return (
+            "LOCAL ONLY is on: no external web, no Brave Search, no page fetches. "
+            "Do not invent live web facts or claim you browsed. "
+            f"{extra}"
+        )
+    if brave:
+        return (
+            "You HAVE live web access via Brave Search (operator key configured; "
+            "Local only is off). That is a fact about this session. "
+            "When web research results are attached, use them and cite URLs. "
+            "Saying you have no internet, cannot search, are offline, or are "
+            "a model without web access is a factual error — do not say it."
+        )
+    return (
+        "Web search may use DuckDuckGo HTML (no Brave key on this account). "
+        "When research results are attached, use them. "
+        "Do not claim you have no internet if sources are provided."
+    )
+
+
+def research(
+    query: str,
+    *,
+    limit: int = 5,
+    deep: bool | None = None,
+    email: str | None = None,
+) -> ResearchResult:
     query = (query or "").strip()
     if query.lower().startswith("research:"):
         query = query.split(":", 1)[1].strip()
@@ -159,7 +299,7 @@ def research(query: str, *, limit: int = 5, deep: bool | None = None) -> Researc
         return ResearchResult(query="", error="empty query")
 
     do_deep = wants_deep(query) if deep is None else deep
-    result = _serp(query, limit=limit)
+    result = _serp(query, limit=limit, email=email)
     if result.error and not result.sources:
         return result
 
@@ -171,7 +311,7 @@ def research(query: str, *, limit: int = 5, deep: bool | None = None) -> Researc
         if _weak_result(result) and _env_int("HAWKEYE_RESEARCH_MAX_ROUNDS", 2) >= 2:
             alt = _reformulate(query)
             if alt and alt.lower() != query.lower():
-                second = _serp(alt, limit=limit)
+                second = _serp(alt, limit=limit, email=email)
                 if second.sources:
                     _enrich_with_pages(second)
                     # Prefer second-round sources that added excerpts.
@@ -186,12 +326,12 @@ def research(query: str, *, limit: int = 5, deep: bool | None = None) -> Researc
     return result
 
 
-def _serp(query: str, *, limit: int) -> ResearchResult:
+def _serp(query: str, *, limit: int, email: str | None = None) -> ResearchResult:
     brave_key = ""
     try:
         from ui import connections
 
-        brave_key = connections.resolve_secret("brave", "api_key")
+        brave_key = connections.resolve_secret("brave", "api_key", email=email)
     except Exception:  # noqa: BLE001
         brave_key = os.environ.get("BRAVE_SEARCH_API_KEY", "").strip()
 

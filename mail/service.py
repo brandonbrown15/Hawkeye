@@ -188,13 +188,9 @@ def draft_reply(msg_id: str) -> dict[str, Any]:
 
     product = (os.environ.get("AUTOCODE_PRODUCT_NAME") or "Hawkeye").strip() or "Hawkeye"
     fenced = security.sanitize_for_prompt(msg.subject, msg.body)
-    system = (
-        f"You are {product}, BrownHawke Engineering's private assistant. "
-        "Draft a short, professional email reply. "
-        "Do not invent commitments, credentials, or wire instructions. "
-        "If the email needs a human decision, say so and propose next steps. "
-        "Output only the reply body (no Subject: line)."
-    )
+    from ui import identity
+
+    system = identity.mail_system_prompt(product)
     # Optional deep research when the mail itself asks for lookup.
     research_note = ""
     try:

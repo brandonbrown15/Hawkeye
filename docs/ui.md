@@ -27,6 +27,7 @@ Overnight / continuous worker timers (separate from UI boot):
 - Ready checklist (Notion, Hermes, Ollama, GitHub, autopilot / continuous)
 - **Run work cycle** — drain Ready Notion tasks now
 - **Talk to Autocode** — chat with the local LLM; auto-escalates to a larger cloud model when needed
+- **WhatsApp** — same chat path via Cloud API webhook; queue-empty / Blocked / needs-human notifies ([whatsapp.md](whatsapp.md))
 - Mock cycle for dry practice
 - Tail of the latest log
 
@@ -108,6 +109,8 @@ The dashboard chat box talks to the **local** Ollama model first (free all day o
 
 Set `CURSOR_API_KEY` (Cursor Dashboard → API Keys) for premium Cursor handoff. Optional: `CURSOR_REPOSITORY` for coding agents, or `CURSOR_WEBHOOK_URL` for a custom bridge. Also optional: `GROK_BOT_WEBHOOK_URL`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, or `XAI_API_KEY`.
 
-Use the **Local only** switch in the dashboard header for **Jetson replies only**. Turn it off for Cursor/Grok escalate and Brave web search. The setting is **per signed-in account** (stored under that email in `state/hawkeye-runtime.json`), so `brandon@` and `mark@` can choose independently. It overrides `AUTOCODE_PERSONAL_LOCAL_ONLY` for that user until they flip it back. Identity prompts (Hawkeye is the assistant, not Brandon) are a separate change.
+Use the **Local only** switch in the dashboard header for **Jetson replies only** (**no Cursor/Grok and no external web**, including Brave Search). The setting is **per signed-in account** (stored under that email in `state/hawkeye-runtime.json`), so `brandon@` and `mark@` can choose independently. It overrides `AUTOCODE_PERSONAL_LOCAL_ONLY` for that user until they flip it back.
+
+When Local only is on and a Brave Search key is saved under Connections, the header hint says web search needs Local only off. Turn the switch off to let chat call Brave (or DuckDuckGo if no key). With Local only off, the chat status is **Hawkeye · Brave** / **Brave ready** — not **Local · Jetson**. See [research.md](research.md).
 
 Private personal product: **[hawkeye.md](hawkeye.md)**.

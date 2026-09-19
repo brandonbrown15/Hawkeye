@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT))
 
 from memory import crypto, embed  # noqa: E402
 from memory.store import MemoryStore, reset_store_for_tests  # noqa: E402
+from ui import identity  # noqa: E402
 
 
 class EmbedTests(unittest.TestCase):
@@ -97,6 +98,17 @@ class StoreTests(unittest.TestCase):
         self.assertTrue(hits)
         os.environ.pop("HAWKEYE_MEMORY_KEY", None)
 
+    def test_identity_seed_once(self) -> None:
+        first = self.store.ensure_identity_seed(identity.MEMORY_SEED_TEXT)
+        second = self.store.ensure_identity_seed(identity.MEMORY_SEED_TEXT)
+        self.assertIsNotNone(first)
+        self.assertIsNone(second)
+        self.assertTrue(self.store.has_identity_seed())
+        hits = self.store.search("Who is Brandon Brown Hawkeye Jetson", limit=3)
+        self.assertTrue(any("created Hawkeye" in h.text for h in hits))
+        identity.assert_identity_safe(first.text)
+
 
 if __name__ == "__main__":
     unittest.main()
+

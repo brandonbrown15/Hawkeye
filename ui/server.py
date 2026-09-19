@@ -74,10 +74,12 @@ _PUBLIC_GET = {
     "/app.css",
     "/api/auth",
     "/api/build",
+    "/api/webhooks/whatsapp",
 }
 _PUBLIC_POST = {
     "/api/login",
     "/api/webhooks/resend",
+    "/api/webhooks/whatsapp",
 }
 
 _demo_lock = threading.Lock()
@@ -127,6 +129,38 @@ def _ready_secret(provider: str, field: str, *, email: str | None = None) -> boo
         return connections.has_secret(provider, field, email=email)
     except Exception:  # noqa: BLE001
         return False
+
+
+def web_search_status(*, user: str | None = None) -> dict[str, Any]:
+    """Local only vs Brave — used by settings, readiness, and chat prompts."""
+    from research.web import brave_configured
+
+    email = None if _is_open_user(user) else user
+    local_only = ui_auth.personal_local_only(user)
+    brave = brave_configured(email=email)
+    enabled = env_truthy("HAWKEYE_RESEARCH_ENABLED", "1")
+    if local_only and brave:
+        hint = "Web search (Brave) needs Local only off."
+    elif local_only:
+        hint = "Local only is on — no external web."
+    elif brave:
+        hint = "Brave Search is connected — web search is available."
+    else:
+        hint = "Add a Brave Search key under Connections for preferred web search."
+    return {
+        "brave_search_configured": brave,
+        "web_search_allowed": (not local_only) and enabled,
+        "web_search_hint": hint,
+    }
+
+
+def _research_ready_hint(user: str | None) -> str:
+    status = web_search_status(user=user)
+    if status["brave_search_configured"] and not status["web_search_allowed"]:
+        return status["web_search_hint"]
+    if not status["web_search_allowed"]:
+        return "Local only is on — turn it off for Brave / web search"
+    return "Account → Connections → Brave; HAWKEYE_RESEARCH_DEEP=1 fetches pages"
 
 
 def gh_authed() -> bool:
@@ -235,7 +269,7 @@ def readiness(*, user: str | None = None) -> dict[str, Any]:
             "id": "research",
             "label": "Web research (deep page read)",
             "ok": env_truthy("HAWKEYE_RESEARCH_ENABLED", "1"),
-            "hint": "Account → Connections → Brave; HAWKEYE_RESEARCH_DEEP=1 fetches pages",
+            "hint": _research_ready_hint(user),
             "optional": True,
         },
         {
@@ -288,6 +322,7 @@ def readiness(*, user: str | None = None) -> dict[str, Any]:
         "details": details,
         "cost_profile": os.environ.get("AUTOCODE_COST_PROFILE", "cursor-grok"),
         "memory": memory_stats,
+        **web_search_status(user=user),
     }
 
 
@@ -401,6 +436,10 @@ def apply_control(action: str, note: str = "", task_id: str = "") -> dict[str, A
     if action == "pause":
         ops.set_control(paused=True, note=note or "paused from UI")
         ops.telegram_notify(f"Autocode PAUSED (UI): {note or 'paused from UI'}")
+        ops.operator_notify(
+            "human",
+            f"Hawkeye is paused and waiting on you: {note or 'paused from UI'}",
+        )
     elif action == "resume":
         ops.set_control(paused=False, note="")
         ops.telegram_notify("Autocode RESUMED (UI)")
@@ -416,7 +455,12 @@ def apply_control(action: str, note: str = "", task_id: str = "") -> dict[str, A
         ops.set_control(clear=True)
     elif action == "ping":
         sent = ops.telegram_notify(note or "Autocode UI ping OK")
-        return {"ok": sent, "error": None if sent else "Telegram not configured", **snapshot()}
+        wa = ops.operator_notify("test", note or "Hawkeye WhatsApp ping OK", force=True)
+        ok = bool(sent or (isinstance(wa, dict) and wa.get("ok")))
+        err = None
+        if not ok:
+            err = "Telegram/WhatsApp not configured"
+        return {"ok": ok, "error": err, "whatsapp": wa, **snapshot()}
     else:
         return {"ok": False, "error": f"unknown action: {action}"}
     return {"ok": True, **snapshot()}
@@ -647,11 +691,11 @@ def _cloud_chat(message: str, local_reply: str, *, email: str | None = None) -> 
 
     from ui import connections
 
+    from ui import identity
+
     name = ui_auth.product_name()
     prompt = (
-        f"You are {name}'s cloud escalator. The local Jetson model could not fully "
-        "handle this operator instruction. Provide a concrete plan or answer, and if "
-        "work should be queued, end with IMPROVE: <checklist item>.\n\n"
+        f"{identity.cloud_escalator_prompt(name)}\n\n"
         f"Operator: {message}\n\nLocal model said:\n{local_reply[:2000]}"
     )
     payload = {
@@ -827,7 +871,10 @@ def _memory_context(message: str) -> tuple[str, list[dict[str, Any]]]:
     try:
         from memory import get_store
 
+        from ui import identity
+
         store = get_store()
+        store.ensure_identity_seed(identity.MEMORY_SEED_TEXT)
         hits = store.search(message, limit=int(os.environ.get("HAWKEYE_MEMORY_TOP_K", "5") or "5"))
         prompt = store.format_for_prompt(message) if hits else ""
         return prompt, [
@@ -839,23 +886,137 @@ def _memory_context(message: str) -> tuple[str, list[dict[str, Any]]]:
         return "", []
 
 
-def _research_context(message: str) -> tuple[str, dict[str, Any] | None]:
-    """Optional web research when the operator asks for facts/docs."""
+def _research_context(
+    message: str,
+    *,
+    local_only: bool = False,
+    email: str | None = None,
+) -> tuple[str, dict[str, Any] | None]:
+    """Optional web research when the operator asks for facts/docs.
+
+    Local only means no external web (Brave / DuckDuckGo / page fetch).
+    Interactive chat uses snippet-fast Brave unless the operator asks to go deep.
+    """
     if not env_truthy("HAWKEYE_RESEARCH_ENABLED", "1"):
         return "", None
     try:
-        from research import research, wants_research
+        from research import research
+        from research.web import (
+            brave_configured,
+            format_web_policy_for_prompt,
+            should_research,
+            wants_deep_explicit,
+        )
 
-        if not wants_research(message):
+        brave = brave_configured(email=email)
+        if not should_research(message, brave=brave and not local_only):
             return "", None
+        if local_only:
+            return format_web_policy_for_prompt(local_only=True, brave=brave), {
+                "skipped": "local_only",
+                "query": message,
+                "provider": "",
+                "error": None,
+                "sources": [],
+                "brave_configured": brave,
+            }
         result = research(
             message,
             limit=int(os.environ.get("HAWKEYE_RESEARCH_TOP_K", "5") or "5"),
+            deep=wants_deep_explicit(message),
+            email=email,
         )
-        return result.format_for_prompt(), result.to_dict()
+        payload = result.to_dict()
+        payload["brave_configured"] = brave
+        return result.format_for_prompt(), payload
     except Exception as e:  # noqa: BLE001
         print(f"[ui-chat] research failed: {e}")
         return "", {"error": str(e)}
+
+
+def chat_route_labels(
+    *,
+    local_only: bool,
+    brave: bool,
+    research_payload: dict[str, Any] | None,
+    escalated: bool,
+    provider: str,
+) -> dict[str, str]:
+    """Chat chip + status. Never say Jetson-only when Brave/cloud is in play."""
+    if escalated:
+        label = (provider or "cloud").strip() or "cloud"
+        if label.lower() in ("none", "error", "local-only"):
+            label = "cloud"
+        return {"reply_label": label, "status_label": f"Escalated · {label}"}
+    if local_only:
+        return {"reply_label": "Jetson", "status_label": "Local · Jetson"}
+    used = str((research_payload or {}).get("provider") or "").lower()
+    sources = (research_payload or {}).get("sources") or []
+    if "brave" in used and sources:
+        return {"reply_label": "Brave", "status_label": "Hawkeye · Brave"}
+    if brave:
+        return {"reply_label": "Hawkeye", "status_label": "Hawkeye · Brave ready"}
+    return {"reply_label": "Hawkeye", "status_label": "Hawkeye"}
+
+
+def _cite_research(research_payload: dict[str, Any] | None, message: str) -> str:
+    if not research_payload or not research_payload.get("sources"):
+        return ""
+    try:
+        from research.web import ResearchResult, ResearchSource
+
+        sources = [
+            ResearchSource(
+                title=str(s.get("title") or ""),
+                url=str(s.get("url") or ""),
+                snippet=str(s.get("snippet") or ""),
+                excerpt=str(s.get("excerpt") or ""),
+            )
+            for s in research_payload["sources"]
+            if isinstance(s, dict)
+        ]
+        return ResearchResult(
+            query=research_payload.get("query") or message,
+            sources=sources,
+            provider=str(research_payload.get("provider") or ""),
+        ).format_for_chat()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _correct_no_web_reply(
+    local_reply: str,
+    *,
+    message: str,
+    stay_local: bool,
+    brave: bool,
+    research_payload: dict[str, Any] | None,
+) -> str:
+    """3B models deny the web even when Brave ran — rewrite those claims."""
+    from research.web import asks_web_access, claims_no_web_access, scrub_no_web_claims
+
+    if stay_local or not brave:
+        return local_reply
+    cite = _cite_research(research_payload, message)
+    if asks_web_access(message):
+        base = (
+            "Yes. Local only is off and Brave Search is connected — "
+            "I can search the web when you ask."
+        )
+        return f"{base}\n\n{cite}" if cite else base
+    if not claims_no_web_access(local_reply):
+        return local_reply
+    cleaned = scrub_no_web_claims(local_reply)
+    prefix = (
+        "Brave Search is connected (Local only is off). "
+        "I do have web access in this session."
+    )
+    parts = [prefix]
+    if cleaned:
+        parts.append(cleaned)
+    if cite and "http" not in (cleaned or "").lower():
+        parts.append(cite)
+    return "\n\n".join(parts)
 
 
 def _persist_memory(
@@ -999,18 +1160,18 @@ def handle_chat(
     # Drop trailing duplicate of the current user message if the client included it.
     if prior and prior[-1]["role"] == "user" and prior[-1]["content"] == message:
         prior = prior[:-1]
+    from research.web import brave_configured, format_web_policy_for_prompt
+    from ui import identity
+
     memory_prompt, memory_hits = _memory_context(message)
-    research_prompt, research_payload = _research_context(message)
+    research_prompt, research_payload = _research_context(
+        message, local_only=stay_local, email=email
+    )
+    brave = brave_configured(email=email)
     system = (
-        f"You are {name} — BrownHawke's private assistant engineer / project manager "
-        "running on a Jetson (free all-day local model). "
-        "You research, remember, and drive other AIs/software to finish engineering work. "
-        "Be concise. Use conversation history — never re-ask for facts the operator already gave. "
-        "If the request is too strenuous for a local model, start with ESCALATE: and say why "
-        "so Cursor or Grok Bot can take over. If a durable follow-up should be queued, "
-        "end with IMPROVE: <checklist item> or BUG: <bug>. "
-        "When web research is provided, cite the source URLs.\n\n"
-        f"{_workspace_brief()}"
+        f"{identity.chat_system_prompt(name)}\n\n"
+        f"{_workspace_brief()}\n\n"
+        f"{format_web_policy_for_prompt(local_only=stay_local, brave=brave)}"
     )
     if memory_prompt:
         system += "\n\n" + memory_prompt
@@ -1019,7 +1180,8 @@ def handle_chat(
     if stay_local:
         system += (
             " PERSONAL_LOCAL_ONLY is on: do not ask for cloud models. "
-            "For repo questions, use the workspace brief above and conversation history."
+            "No external web. For repo questions, use the workspace brief above "
+            "and conversation history."
         )
     local_reply = ""
     local_error = ""
@@ -1051,6 +1213,19 @@ def handle_chat(
             local_error = _friendly_local_error(err)
             local_reply = local_error
     if not local_error:
+        # Citations + no-internet rewrite BEFORE escalate. "I cannot search"
+        # must not kick Cursor when Brave is connected and Local only is off.
+        if research_payload and research_payload.get("sources"):
+            cite_block = _cite_research(research_payload, message)
+            if cite_block and "http" not in local_reply.lower():
+                local_reply = f"{local_reply.rstrip()}\n\n{cite_block}"
+        local_reply = _correct_no_web_reply(
+            local_reply,
+            message=message,
+            stay_local=stay_local,
+            brave=brave,
+            research_payload=research_payload,
+        )
         escalated = _should_escalate(message, local_reply, history=prior)
     elif not _is_trivial_chat(message) and (
         _should_escalate(message, "", history=prior) or len(message.strip()) >= 60
@@ -1088,32 +1263,6 @@ def handle_chat(
             )
             cloud_reply = cloud_error
             provider = "error"
-
-    # Surface citations in the local reply when research ran and model omitted them.
-    if research_payload and research_payload.get("sources") and not escalated:
-        cite_block = ""
-        try:
-            from research.web import ResearchResult, ResearchSource
-
-            sources = [
-                ResearchSource(
-                    title=str(s.get("title") or ""),
-                    url=str(s.get("url") or ""),
-                    snippet=str(s.get("snippet") or ""),
-                    excerpt=str(s.get("excerpt") or ""),
-                )
-                for s in research_payload["sources"]
-                if isinstance(s, dict)
-            ]
-            cite_block = ResearchResult(
-                query=research_payload.get("query") or message,
-                sources=sources,
-                provider=str(research_payload.get("provider") or ""),
-            ).format_for_chat()
-        except Exception:  # noqa: BLE001
-            cite_block = ""
-        if cite_block and "http" not in local_reply.lower():
-            local_reply = f"{local_reply.rstrip()}\n\n{cite_block}"
 
     seeded_task = None
     if seed_notion:
@@ -1206,6 +1355,14 @@ def handle_chat(
         "memory_id": memory_id,
         "memory_hits": memory_hits,
         "research": research_payload,
+        **chat_route_labels(
+            local_only=stay_local,
+            brave=brave,
+            research_payload=research_payload,
+            escalated=escalated,
+            provider=provider,
+        ),
+        **web_search_status(user=email),
     }
 
 
@@ -1318,6 +1475,11 @@ def handle_update_task_status(
 
     try:
         if env_truthy("HAWKEYE_PM_MOCK") or page_id.startswith("mock-"):
+            if str(status).strip().lower() == "blocked":
+                ops.operator_notify(
+                    "blocked",
+                    f"Hawkeye: task marked Blocked.\npage={page_id}",
+                )
             return {
                 "ok": True,
                 "mock": True,
@@ -1328,6 +1490,11 @@ def handle_update_task_status(
                 },
             }
         task = notion_pm.update_task_status(page_id, status, pr_url=pr_url)
+        if str(status).strip().lower() == "blocked":
+            ops.operator_notify(
+                "blocked",
+                f"Hawkeye: task marked Blocked.\npage={page_id}",
+            )
         return {"ok": True, "task": task.to_dict()}
     except notion_pm.NotionError as e:
         return {"ok": False, "error": str(e)}
@@ -1507,12 +1674,21 @@ class Handler(BaseHTTPRequestHandler):
                         if not ui_auth.private_mode_enabled()
                         else [],
                         "configured_user_count": len(ui_auth.load_users()),
+                        **web_search_status(user=auth_user),
                         **access,
                     }
                 )
             )
         if path == "/api/build":
             return self._send(*json_response({"ok": True, **build_info()}))
+        if path == "/api/webhooks/whatsapp":
+            from urllib.parse import parse_qs
+
+            from whatsapp.webhook import handle_verify_request
+
+            qs = parse_qs(urlparse(self.path).query)
+            code, body, ctype = handle_verify_request(qs)
+            return self._send(code, body, ctype)
         # Remaining API + pages need a session in private mode.
         if path.startswith("/api/"):
             if not self._require_session(path, html=False):
@@ -1529,8 +1705,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/ready":
             return self._send(*json_response(readiness(user=self._current_user())))
         if path == "/api/settings":
+            settings_user = self._current_user()
             return self._send(
-                *json_response({"ok": True, **runtime.effective(self._current_user())})
+                *json_response(
+                    {
+                        "ok": True,
+                        **runtime.effective(settings_user),
+                        **web_search_status(user=settings_user),
+                    }
+                )
             )
         if path == "/api/machine":
             user = self._require_user()
@@ -1638,6 +1821,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
+
+        if path == "/api/webhooks/whatsapp":
+            raw = self._read_raw()
+            headers = {k: v for k, v in self.headers.items()}
+            try:
+                from whatsapp import handle_inbound_payload
+                from whatsapp.webhook import WebhookError
+
+                out = handle_inbound_payload(raw, headers=headers)
+                return self._send(*json_response(out))
+            except WebhookError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 403))
+            except Exception as e:  # noqa: BLE001
+                return self._send(*json_response({"ok": False, "error": str(e)}, 500))
 
         # Resend inbound webhook — raw body required for signature verify.
         if path == "/api/webhooks/resend":
@@ -1755,6 +1952,16 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if action in ("disconnect", "delete", "revoke"):
                     out = connections.disconnect(user, provider)
+                elif action in ("allowlist_add", "allowlist_remove"):
+                    if provider != "whatsapp":
+                        raise ValueError("number allowlist is WhatsApp only")
+                    from whatsapp import allowlist
+
+                    number = str(data.get("number") or "")
+                    if action == "allowlist_add":
+                        out = allowlist.add_number(user, number)
+                    else:
+                        out = allowlist.remove_number(user, number)
                 else:
                     secrets_in = data.get("secrets") if isinstance(data.get("secrets"), dict) else {}
                     # Also accept flat field names on the body.
@@ -1937,7 +2144,9 @@ class Handler(BaseHTTPRequestHandler):
                 out = runtime.set_personal_local_only(enabled, user=user)
             except ValueError as e:
                 return self._send(*json_response({"ok": False, "error": str(e)}, 400))
-            return self._send(*json_response({"ok": True, **out}))
+            return self._send(
+                *json_response({"ok": True, **out, **web_search_status(user=user)})
+            )
         if path == "/api/demo":
             return self._send(*json_response(start_demo()))
         if path == "/api/work":

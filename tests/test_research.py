@@ -12,7 +12,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from research import wants_research  # noqa: E402
-from research.web import ResearchResult, ResearchSource, _parse_ddg_html, research  # noqa: E402
+from research.web import (  # noqa: E402
+    ResearchResult,
+    ResearchSource,
+    _parse_ddg_html,
+    brave_configured,
+    claims_no_web_access,
+    format_web_policy_for_prompt,
+    research,
+    scrub_no_web_claims,
+    should_research,
+    wants_deep_explicit,
+)
 
 
 class ParseTests(unittest.TestCase):
@@ -96,7 +107,55 @@ class WantsResearchTests(unittest.TestCase):
         self.assertTrue(wants_research("look up the nomic-embed-text docs"))
         self.assertTrue(wants_research("/research cloudflare tunnel dns"))
         self.assertTrue(wants_research("deep search Cloudflare Tunnel"))
+        self.assertTrue(wants_research("search for Cloudflare Tunnel docs"))
+        self.assertTrue(wants_research("can you search NVIDIA Jetson news"))
+        self.assertTrue(wants_research("do you have internet"))
         self.assertFalse(wants_research("pause the overnight run"))
+        self.assertFalse(wants_research("mark BLD-1 as Done"))
+        self.assertTrue(should_research("What's the weather in Austin?", brave=True))
+        self.assertTrue(wants_deep_explicit("deep research Cloudflare Tunnel"))
+        self.assertFalse(wants_deep_explicit("search for Cloudflare Tunnel docs"))
+        self.assertTrue(claims_no_web_access("I have no internet and cannot search."))
+        self.assertNotIn("no internet", scrub_no_web_claims("I have no internet. Use the board.").lower())
+
+
+class BravePolicyTests(unittest.TestCase):
+    def test_web_policy_local_only_vs_brave(self) -> None:
+        blocked = format_web_policy_for_prompt(local_only=True, brave=True)
+        self.assertIn("LOCAL ONLY", blocked)
+        self.assertIn("Brave", blocked)
+        self.assertIn("turn Local only off", blocked)
+        open_brave = format_web_policy_for_prompt(local_only=False, brave=True)
+        self.assertIn("Brave Search", open_brave)
+        self.assertIn("HAVE live web access", open_brave)
+        self.assertIn("factual error", open_brave)
+
+    def test_research_reads_connections_brave_key(self) -> None:
+        import os
+        import tempfile
+        from ui import accounts, connections
+
+        tmp = Path(tempfile.mkdtemp(prefix="hawkeye-brave-"))
+        os.environ["HAWKEYE_ACCOUNTS_DIR"] = str(tmp)
+        os.environ["HAWKEYE_MEMORY_KEY"] = "test-secrets-key-for-unit-tests"
+        os.environ.pop("BRAVE_SEARCH_API_KEY", None)
+        accounts.clear_cache()
+        email = "brandon@brownhawke.engineering"
+        connections.set_connection(email, "brave", secrets={"api_key": "brave-from-vault"})
+        connections.set_request_user(None)
+        self.assertTrue(brave_configured(email=email))
+        self.assertFalse(brave_configured(email="mark@brownhawke.engineering"))
+        fake = ResearchResult(
+            query="q",
+            provider="brave",
+            sources=[ResearchSource(title="t", url="https://x.test", snippet="s")],
+        )
+        with mock.patch("research.web._brave_search", return_value=fake) as brave:
+            with mock.patch.dict("os.environ", {"HAWKEYE_RESEARCH_DEEP": "0"}, clear=False):
+                out = research("search for something", deep=False, email=email)
+        self.assertEqual(out.provider, "brave")
+        brave.assert_called_once()
+        self.assertEqual(brave.call_args.kwargs.get("api_key"), "brave-from-vault")
 
 
 if __name__ == "__main__":

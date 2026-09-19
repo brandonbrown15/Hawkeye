@@ -187,7 +187,7 @@
     ].filter(Boolean);
     const readyMeta = document.getElementById("readyMeta");
     if (readyMeta) readyMeta.textContent = bits.join(" · ");
-    syncLocalOnlyToggle(!!data.personal_local_only, data.settings_user);
+    syncLocalOnlyToggle(!!data.personal_local_only, data.settings_user, data);
   }
 
   function applyTheme(pref) {
@@ -261,7 +261,23 @@
     } catch (_) { /* strip stays on em dashes */ }
   }
 
-  function syncLocalOnlyToggle(on, user) {
+  let webSearchState = { brave: false, allowed: true, hint: "" };
+
+  function applyWebSearchState(data) {
+    if (!data || typeof data !== "object") return;
+    if (typeof data.brave_search_configured === "boolean") {
+      webSearchState.brave = data.brave_search_configured;
+    }
+    if (typeof data.web_search_allowed === "boolean") {
+      webSearchState.allowed = data.web_search_allowed;
+    }
+    if (typeof data.web_search_hint === "string") {
+      webSearchState.hint = data.web_search_hint;
+    }
+  }
+
+  function syncLocalOnlyToggle(on, user, extras) {
+    if (extras) applyWebSearchState(extras);
     const toggle = document.getElementById("localOnlyToggle");
     const wrap = toggle && toggle.closest(".local-only-switch");
     const hint = document.getElementById("localOnlyHint");
@@ -269,20 +285,32 @@
     if (toggle) toggle.checked = !!on;
     if (wrap) wrap.classList.toggle("is-on", !!on);
     const who = user && user.includes("@") ? user.split("@")[0] : "your account";
+    const brave = webSearchState.brave;
     if (hint) {
-      hint.textContent = on ? `${who}: Jetson only` : `${who}: cloud/search ok`;
+      hint.textContent = on
+        ? (brave ? `${who}: Jetson only — off for Brave` : `${who}: Jetson replies only`)
+        : (brave ? `${who}: escalate + Brave ok` : `${who}: cloud/search ok`);
     }
     if (note) {
       note.textContent = on
-        ? `Local only on for ${who} — Jetson replies only. Turn off for Cursor/Grok or Brave search.`
-        : "Plan, research, or drive the Notion board. Turn Local only off for cloud or Brave search.";
+        ? (brave
+            ? `Local only on for ${who} — Jetson replies only. Web search (Brave) needs Local only off.`
+            : `Local only on for ${who} — Jetson replies only. No Cursor/Grok and no external web.`)
+        : (brave
+            ? "Plan, research, or drive the Notion board. Brave Search is on (Local only is off)."
+            : "Plan, research, or drive the Notion board. Turn Local only off for cloud or Brave search.");
+    }
+    if (wrap) {
+      wrap.title = on
+        ? "Local only = Jetson replies only — no Cursor/Grok and no external web (including Brave Search)."
+        : "Local only is off: Cursor/Grok escalate and Brave search allowed.";
     }
   }
 
   async function loadLocalOnlySetting() {
     try {
       const data = await get("/api/settings");
-      syncLocalOnlyToggle(!!data.personal_local_only, data.user);
+      syncLocalOnlyToggle(!!data.personal_local_only, data.user, data);
     } catch (_) {
       /* optional on first paint */
     }
@@ -1056,7 +1084,9 @@
         if (localFailed) {
           appendChat("system", data.local_error, { label: "Ollama", error: true });
         } else if (data.local_reply) {
-          appendChat("local", data.local_reply, { label: "Jetson" });
+          const localLabel = data.reply_label
+            || (data.local_only ? "Jetson" : (data.brave_search_configured ? "Hawkeye · Brave" : "Hawkeye"));
+          appendChat("local", data.local_reply, { label: localLabel });
         }
         if (data.escalated && (data.cloud_reply || data.cloud_error)) {
           if (cloudFailed) {
@@ -1065,6 +1095,13 @@
             const provider = friendlyProvider(data.provider, true);
             appendChat("cloud", data.cloud_reply, { provider, label: provider });
           }
+        }
+        if (data.research && data.research.skipped === "local_only") {
+          appendChat(
+            "system",
+            data.web_search_hint || "Web search skipped — Local only is on. Turn it off to use Brave Search.",
+            { label: "Local only" }
+          );
         }
         if (data.seeded_task) {
           appendChat("system", `Added to the Notion board: ${data.seeded_task}`, { label: "Board" });
@@ -1080,7 +1117,12 @@
           setChatStatus(cloudFailed ? "Cloud unavailable" : `Escalated · ${provider}`, cloudFailed ? "error" : "escalate");
           toast(cloudFailed ? (data.cloud_error || "Cloud escalate unavailable") : `Escalated to ${provider}`);
         } else {
-          setChatStatus("Local · Jetson", "local");
+          const status = data.status_label
+            || (data.local_only
+              ? "Local · Jetson"
+              : (data.brave_search_configured ? "Hawkeye · Brave ready" : "Hawkeye"));
+          const kind = data.local_only ? "local" : (data.brave_search_configured ? "web" : "local");
+          setChatStatus(status, kind);
           toast("Hawkeye replied");
         }
       } catch (e) {
@@ -1163,10 +1205,10 @@
       localOnlyToggle.disabled = true;
       try {
         const data = await post("/api/settings", { personal_local_only: enabled });
-        syncLocalOnlyToggle(!!data.personal_local_only, data.user);
+        syncLocalOnlyToggle(!!data.personal_local_only, data.user, data);
         toast(
           data.personal_local_only
-            ? `Local only on for ${data.user || "you"} — Jetson replies only`
+            ? `Local only on for ${data.user || "you"} — Jetson replies only (no Cursor/Grok, no Brave Search)`
             : `Local only off for ${data.user || "you"} — cloud / Brave search allowed`
         );
         refreshOps().catch(() => {});
@@ -1273,6 +1315,102 @@
     if (gh) gh.placeholder = auto.github_token_ready ? "(saved in .env — enter to replace)" : "ghp_… or github_pat_…";
   }
 
+  function formatE164Display(raw) {
+    const digits = String(raw || "").replace(/\D/g, "");
+    return digits ? `+${digits}` : "";
+  }
+
+  function renderWhatsAppAllowlist(providerId, numbers, example) {
+    const wrap = document.createElement("div");
+    wrap.className = "conn-allowlist";
+    wrap.dataset.allowlist = providerId;
+    const heading = document.createElement("label");
+    heading.textContent = "Allowlisted numbers";
+    const note = document.createElement("p");
+    note.className = "section-note";
+    const list = Array.isArray(numbers) ? numbers : [];
+    note.textContent = list.length
+      ? "Only these WhatsApp numbers can chat or receive notifies."
+      : `No numbers yet — inbound WhatsApp is rejected. Example: ${example} (Brandon).`;
+    const ul = document.createElement("ul");
+    ul.className = "conn-allowlist-list";
+    for (const n of list) {
+      const li = document.createElement("li");
+      const span = document.createElement("span");
+      span.className = "conn-allowlist-num";
+      span.textContent = formatE164Display(n);
+      const rm = document.createElement("button");
+      rm.type = "button";
+      rm.className = "btn ghost compact";
+      rm.textContent = "Remove";
+      rm.addEventListener("click", async () => {
+        try {
+          await post(`/api/connections/${encodeURIComponent(providerId)}`, {
+            action: "allowlist_remove",
+            number: n,
+          });
+          toast(`Removed ${formatE164Display(n)}`);
+          loadAccountData().catch(() => {});
+        } catch (e) {
+          toast(String(e.message || e));
+        }
+      });
+      li.append(span, rm);
+      ul.appendChild(li);
+    }
+    const row = document.createElement("div");
+    row.className = "conn-allowlist-add";
+    const input = document.createElement("input");
+    input.type = "tel";
+    input.inputMode = "tel";
+    input.autocomplete = "tel";
+    input.placeholder = example || "+447710086970";
+    input.setAttribute("aria-label", "Add WhatsApp number");
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "btn primary compact";
+    addBtn.textContent = "Add";
+    const submitAdd = async (raw) => {
+      const val = String(raw || input.value || "").trim();
+      if (!val) {
+        toast("Enter an E.164 number");
+        return;
+      }
+      try {
+        await post(`/api/connections/${encodeURIComponent(providerId)}`, {
+          action: "allowlist_add",
+          number: val,
+        });
+        input.value = "";
+        toast(`Allowlisted ${formatE164Display(val)}`);
+        loadAccountData().catch(() => {});
+      } catch (e) {
+        toast(String(e.message || e));
+      }
+    };
+    addBtn.addEventListener("click", () => submitAdd());
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        submitAdd();
+      }
+    });
+    row.append(input, addBtn);
+    const exampleDigits = String(example || "").replace(/\D/g, "");
+    const haveExample = list.some((n) => String(n).replace(/\D/g, "") === exampleDigits);
+    if (exampleDigits && !haveExample) {
+      const seed = document.createElement("button");
+      seed.type = "button";
+      seed.className = "btn ghost compact";
+      seed.dataset.allowlistExample = exampleDigits;
+      seed.textContent = `Add ${example}`;
+      seed.addEventListener("click", () => submitAdd(example));
+      row.append(seed);
+    }
+    wrap.append(heading, note, ul, row);
+    return wrap;
+  }
+
   function renderConnections(data) {
     const note = document.getElementById("connEncryptNote");
     if (note) {
@@ -1310,11 +1448,41 @@
       const hint = document.createElement("p");
       hint.className = "section-note";
       hint.textContent = p.hint || "";
+      let webhookWrap = null;
+      if (p.webhook_url) {
+        webhookWrap = document.createElement("div");
+        webhookWrap.className = "conn-webhook";
+        const whLabel = document.createElement("label");
+        whLabel.textContent = "Webhook URL (paste in Meta)";
+        const row = document.createElement("div");
+        row.className = "conn-webhook-row";
+        const whInput = document.createElement("input");
+        whInput.type = "text";
+        whInput.readOnly = true;
+        whInput.value = p.webhook_url;
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.className = "btn ghost compact";
+        copy.textContent = "Copy";
+        copy.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(p.webhook_url);
+            toast("Webhook URL copied");
+          } catch {
+            whInput.select();
+            toast("Select and copy the webhook URL");
+          }
+        });
+        row.append(whInput, copy);
+        webhookWrap.append(whLabel, row);
+      }
       const fields = document.createElement("div");
       fields.className = "conn-fields";
       const savedFields = p.saved_fields || [];
       const unreadFields = p.unreadable_fields || [];
+      const listFields = p.list_fields || [];
       for (const field of p.fields || []) {
+        if (listFields.includes(field)) continue;
         const label = document.createElement("label");
         label.textContent = field;
         const input = document.createElement("input");
@@ -1372,7 +1540,14 @@
         }
       });
       actions.append(save, disc);
-      card.append(head, hint, fields, actions);
+      card.append(head, hint);
+      if (webhookWrap) card.append(webhookWrap);
+      if (listFields.includes("allowed_numbers")) {
+        card.append(
+          renderWhatsAppAllowlist(id, p.allowed_numbers || [], p.allowed_numbers_example || "+447710086970")
+        );
+      }
+      card.append(fields, actions);
       list.appendChild(card);
     }
   }
@@ -1760,7 +1935,7 @@
     .then((auth) => {
       currentUser = auth.user || (auth.profile && auth.profile.email) || null;
       if (typeof auth.personal_local_only === "boolean") {
-        syncLocalOnlyToggle(auth.personal_local_only, auth.user);
+        syncLocalOnlyToggle(auth.personal_local_only, auth.user, auth);
       }
       const btn = document.getElementById("logoutBtn");
       const accountBtn = document.getElementById("accountBtn");

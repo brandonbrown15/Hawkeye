@@ -17,6 +17,7 @@ Hawkeye / Autocode is designed so the **public Autocode git repo never holds sec
 | `~/.hermes/`, SSH keys, `gh` auth | Machine credentials |
 | `logs/`, `state/` | Runtime output |
 | `$AUTOCODE_DATA_ROOT/hawkeye/memory/` | Personal vector memory (never Autocode) |
+| `$AUTOCODE_DATA_ROOT/hawkeye/whatsapp/` | WhatsApp history + webhook dedup |
 | Cloudflare Tunnel credentials JSON | Domain exposure credentials |
 
 ## Hawkeye baseline (login + tunnel + memory)
@@ -75,6 +76,7 @@ cloudflared tunnel run hawkeye
 5. Paid cloud fallbacks leave the machine — disable them for sensitive workspaces.
 6. **Hawkeye private UI:** strong password hash, tunnel-only UI, encrypted memory when possible.
 7. Never copy `hawkeye/memory/` into Autocode or any public gist.
+8. WhatsApp Cloud API: verify `X-Hub-Signature-256`, allowlist Brandon’s number, never commit access tokens or app secrets. See [whatsapp.md](whatsapp.md).
 
 ## If a secret is leaked
 

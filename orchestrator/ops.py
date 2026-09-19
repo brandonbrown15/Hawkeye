@@ -6,6 +6,7 @@ Monitor / intervene without sitting at the Jetson:
   - state/control.json  — pause / abort / skip_task_id
   - python3 -m orchestrator.ops status|pause|resume|abort|skip|ping
   - optional Telegram progress pings
+  - optional WhatsApp operator alerts (queue empty / blocked / needs human)
 
 Recommended: Tailscale SSH → status/control. Notion is the cloud dashboard.
 """
@@ -201,6 +202,18 @@ def clear_skip(task_id: str) -> None:
         set_control(skip_task_id=None)
 
 
+def operator_notify(kind: str, text: str, *, force: bool = False) -> dict:
+    """Best-effort WhatsApp operator alert. Never raises."""
+    try:
+        from whatsapp.notify import notify_operator
+
+        out = notify_operator(kind, text, force=force)
+        return out if isinstance(out, dict) else {"ok": bool(out)}
+    except Exception as e:  # noqa: BLE001
+        print(f"[whatsapp] notify skipped: {e}")
+        return {"ok": False, "error": str(e), "sent": 0}
+
+
 def telegram_notify(text: str) -> bool:
     """Best-effort Telegram ping. Returns True if sent."""
     token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
@@ -269,6 +282,7 @@ def main() -> None:
     if args.cmd == "pause":
         set_control(paused=True, note=args.note)
         telegram_notify(f"Autocode PAUSED: {args.note}")
+        operator_notify("human", f"Hawkeye is paused and waiting on you: {args.note}")
         print(format_status())
         return
     if args.cmd == "resume":
@@ -292,7 +306,9 @@ def main() -> None:
         return
     if args.cmd == "ping":
         ok = telegram_notify(args.text)
+        wa = operator_notify("test", args.text, force=True)
         print("sent" if ok else "Telegram not configured or send failed")
+        print("whatsapp", "sent" if wa.get("ok") else wa.get("error") or "not configured")
         return
 
 

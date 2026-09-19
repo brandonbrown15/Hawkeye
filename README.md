@@ -18,6 +18,7 @@ This is **not** the public [Autocode](https://github.com/brandonbrown15/Autocode
 | **Vector memory** | Chat/decisions on the 4TB SSD (`nomic-embed-text`) |
 | **Web research** | Deep page-read lookup + citations in chat |
 | **Email inbox** | Resend inbound → local draft → approve to send |
+| **WhatsApp** | Official Cloud API chat + queue-empty / needs-human notifies |
 | **Cursor / Grok** | Escalate strenuous asks via webhooks |
 | **Login** | `@brownhawke.engineering` work emails only |
 | **Per-user accounts** | Profile, encrypted connections, shared projects, DMs |
@@ -227,7 +228,7 @@ Details: [docs/pm.md](docs/pm.md) · [docs/notion-setup.md](docs/notion-setup.md
 # BASE_MODEL=qwen2.5-coder:3b ./ollama/create_coder_64k.sh
 ```
 
-The Modelfile sets `num_ctx 65536` and a **Hawkeye** system prompt (BrownHawke engineering assistant). UI chat also injects Hawkeye identity + retrieved memory.
+The Modelfile sets `num_ctx 65536` and a **Hawkeye** system prompt: Hawkeye is software created by Brandon Brown (a human); it runs on a Jetson. UI chat also injects that identity + retrieved memory. Local only blocks cloud escalate **and** Brave / web search — see [docs/research.md](docs/research.md).
 
 ### 5. Vector memory + research
 
@@ -260,6 +261,14 @@ HAWKEYE_MAIL_FROM=hawkeye@agent.brownhawke.engineering
 
 Webhook URL: `https://hawkeye.brownhawke.engineering/api/webhooks/resend`  
 Approve drafts in the UI **Email inbox**. Guide: [docs/mail.md](docs/mail.md).
+
+### 5c. WhatsApp (Cloud API)
+
+Official Meta WhatsApp Cloud API (no scrapers). Save phone number id / tokens under **Account → Connections**, allowlist Brandon’s number, and point Meta at:
+
+`https://hawkeye.brownhawke.engineering/api/webhooks/whatsapp`
+
+Inbound text uses the same chat/escalate path as the UI. Hawkeye texts Brandon when Ready drains, a task is Blocked, or a human decision is needed. Guide: [docs/whatsapp.md](docs/whatsapp.md).
 
 ### 6. Boot auto-start
 
@@ -351,6 +360,7 @@ More: [docs/architecture.md](docs/architecture.md) · [docs/how-ai-talks.md](doc
 | [docs/memory.md](docs/memory.md) | Vector memory |
 | [docs/research.md](docs/research.md) | Deep web research |
 | [docs/mail.md](docs/mail.md) | Email inbox + answer |
+| [docs/whatsapp.md](docs/whatsapp.md) | WhatsApp Cloud API chat + notifies |
 | [docs/login.md](docs/login.md) | Login path, failure modes, add Mark on the Jetson |
 | [docs/accounts.md](docs/accounts.md) | Per-user connections, projects, DMs |
 | [docs/security.md](docs/security.md) | Login, tunnel, memory privacy |
