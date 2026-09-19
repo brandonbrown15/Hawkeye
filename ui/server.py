@@ -729,13 +729,37 @@ def _cloud_chat(message: str, local_reply: str, *, email: str | None = None) -> 
             data = _json.loads(resp.read().decode())
         return data["choices"][0]["message"]["content"], "Grok API"
 
-    hint = (
-        "No premium provider configured. Add a Cursor API key (Dashboard → API Keys) under "
-        "Account → Connections → Cursor, or Grok / Claude / OpenRouter. Local reply retained."
+    return _premium_none_hint(email, errors, grok_key_present=bool(xai)), "none"
+
+
+def _premium_none_hint(email: str | None, errors: list[str], *, grok_key_present: bool) -> str:
+    """Explain [none] — 'not configured' was a lie when keys existed but were unusable."""
+    from ui import connections
+
+    unread = connections.unreadable_secret_labels(
+        email=email,
+        providers=("cursor", "grok", "claude", "openrouter"),
     )
+    grok_blocked = grok_key_present and env_truthy("AUTOCODE_DISABLE_METERED_GROK", "1")
+    parts: list[str] = []
     if errors:
-        hint += " Webhook errors: " + "; ".join(errors)
-    return hint, "none"
+        parts.append("Premium provider(s) failed: " + "; ".join(errors))
+    else:
+        parts.append(
+            "No usable premium provider. Chat escalate needs a decryptable Cursor API key "
+            "(Dashboard → API Keys) or a Cursor / Grok Bot webhook URL. Local reply retained."
+        )
+    if grok_blocked:
+        parts.append(
+            "Grok xAI API key is saved but AUTOCODE_DISABLE_METERED_GROK=1 "
+            "(default — add a Grok Bot webhook or use Cursor; do not enable metered xAI overnight)."
+        )
+    if unread:
+        parts.append(
+            "Saved Connection secrets could not be decrypted — check HAWKEYE_MEMORY_KEY "
+            f"(unreadable: {', '.join(unread)})."
+        )
+    return " ".join(parts)
 
 
 def _memory_context(message: str) -> tuple[str, list[dict[str, Any]]]:

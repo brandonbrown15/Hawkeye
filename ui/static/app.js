@@ -720,9 +720,9 @@
       `branch ${auto.update_branch || "?"}`,
     ];
     note.textContent = bits.join(" · ");
-    if (auto.update_check) {
+    if (data.update_log || auto.update_check) {
       log.hidden = false;
-      log.textContent = auto.update_check;
+      log.textContent = data.update_log || auto.update_check;
     }
     const branch = document.getElementById("machBranch");
     const host = document.getElementById("machHost");
@@ -730,6 +730,8 @@
     if (branch && !branch.dataset.touched) branch.value = auto.update_branch || "";
     if (host && !host.dataset.touched) host.value = data.public_host || "";
     if (on) on.checked = !!auto.update_enabled;
+    const resetBtn = document.getElementById("machResetUpdate");
+    if (resetBtn) resetBtn.hidden = data.admin === false;
     const tunnel = document.getElementById("machTunnel");
     if (tunnel) tunnel.placeholder = data.tunnel_token_set ? "(saved — enter to replace)" : "Paste Cloudflare install token";
     const mem = document.getElementById("machMemKey");
@@ -754,19 +756,29 @@
       const head = document.createElement("div");
       head.className = "conn-head";
       const statusClass =
-        p.status === "connected" ? "on" : p.status === "machine" ? "machine" : "off";
+        p.status === "connected"
+          ? "on"
+          : p.status === "machine"
+            ? "machine"
+            : p.status === "unreadable"
+              ? "unreadable"
+              : "off";
       const statusLabel =
         p.status === "connected"
           ? "connected"
           : p.status === "machine"
             ? "machine .env"
-            : "disconnected";
+            : p.status === "unreadable"
+              ? "saved — cannot decrypt"
+              : "disconnected";
       head.innerHTML = `<strong>${p.label}</strong><span class="conn-status ${statusClass}">${statusLabel}</span>`;
       const hint = document.createElement("p");
       hint.className = "section-note";
       hint.textContent = p.hint || "";
       const fields = document.createElement("div");
       fields.className = "conn-fields";
+      const savedFields = p.saved_fields || [];
+      const unreadFields = p.unreadable_fields || [];
       for (const field of p.fields || []) {
         const label = document.createElement("label");
         label.textContent = field;
@@ -775,7 +787,13 @@
         input.type = isPublic ? "text" : "password";
         input.autocomplete = "off";
         input.dataset.field = field;
-        input.placeholder = p.status === "connected" ? "(saved — enter to replace)" : "";
+        if (unreadFields.includes(field)) {
+          input.placeholder = "(saved but cannot decrypt — check memory key)";
+        } else if (savedFields.includes(field)) {
+          input.placeholder = "(saved — enter to replace)";
+        } else {
+          input.placeholder = "";
+        }
         fields.append(label, input);
       }
       const labelIn = document.createElement("input");
@@ -1022,6 +1040,28 @@
         renderMachine(out);
       } catch (e) {
         toast(String(e.message || e));
+      }
+    });
+  }
+
+  const machReset = document.getElementById("machResetUpdate");
+  if (machReset) {
+    machReset.addEventListener("click", async () => {
+      const ok = window.confirm(
+        "Discard uncommitted tracked files in the Hawkeye checkout and reset to origin/main?\n\n"
+        + ".env and other gitignored secrets stay. Untracked files are removed only if they block checkout."
+      );
+      if (!ok) return;
+      try {
+        toast("Resetting checkout to origin/main…");
+        machReset.disabled = true;
+        const out = await post("/api/machine", { reset_to_remote: "1" });
+        toast("Reset + update finished — UI will restart");
+        renderMachine(out);
+      } catch (e) {
+        toast(String(e.message || e));
+      } finally {
+        machReset.disabled = false;
       }
     });
   }

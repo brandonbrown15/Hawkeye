@@ -109,6 +109,32 @@ class MachineSettingsTests(unittest.TestCase):
         )
         self.assertIn("HAWKEYE_MEMORY_KEY=second-key", self.env_path.read_text(encoding="utf-8"))
 
+    def test_reset_to_remote_invokes_self_update_reset(self) -> None:
+        script = self.tmp / "scripts" / "hawkeye_self_update.sh"
+        script.parent.mkdir(parents=True, exist_ok=True)
+        script.write_text("#!/bin/bash\necho RESET_OK \"$@\"\n", encoding="utf-8")
+        script.chmod(0o755)
+        with mock.patch.object(machine_settings, "update_status", return_value={}):
+            out = machine_settings.apply(
+                "brandon@brownhawke.engineering",
+                {"reset_to_remote": "1"},
+            )
+        self.assertIn("reset_to_remote_ok", out["applied"])
+        self.assertIn("RESET_OK", out.get("update_log", ""))
+        self.assertIn("--reset", out.get("update_log", ""))
+
+    def test_force_update_failure_raises(self) -> None:
+        script = self.tmp / "scripts" / "hawkeye_self_update.sh"
+        script.parent.mkdir(parents=True, exist_ok=True)
+        script.write_text("#!/bin/bash\necho working-tree=dirty >&2\nexit 1\n", encoding="utf-8")
+        script.chmod(0o755)
+        with self.assertRaises(ValueError) as ctx:
+            machine_settings.apply(
+                "brandon@brownhawke.engineering",
+                {"force_update": "1"},
+            )
+        self.assertIn("working-tree=dirty", str(ctx.exception))
+
     def test_wake_ollama_action(self) -> None:
         with mock.patch.object(
             machine_settings,

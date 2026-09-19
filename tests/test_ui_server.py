@@ -38,6 +38,11 @@ class UiHelpersTests(unittest.TestCase):
             "CURSOR_WEBHOOK_URL",
             "CURSOR_API_KEY",
             "GROK_BOT_WEBHOOK_URL",
+            "XAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "OPENROUTER_API_KEY",
+            "AUTOCODE_DISABLE_METERED_GROK",
+            "AUTOCODE_DELEGATE_TIMEOUT_SEC",
             "HAWKEYE_USERS_FILE",
             "HAWKEYE_ALLOWED_EMAIL_DOMAIN",
             "HAWKEYE_USERS_JSON",
@@ -415,6 +420,28 @@ class UiHelpersTests(unittest.TestCase):
         self.assertEqual(out["provider"], "Cursor")
         self.assertEqual(out["cloud_reply"], "premium plan")
         wh.assert_called_once()
+
+    def test_cloud_chat_none_explains_metered_grok_block(self) -> None:
+        os.environ["XAI_API_KEY"] = "xai-saved"
+        os.environ["AUTOCODE_DISABLE_METERED_GROK"] = "1"
+        os.environ.pop("CURSOR_API_KEY", None)
+        os.environ.pop("CURSOR_WEBHOOK_URL", None)
+        os.environ.pop("GROK_BOT_WEBHOOK_URL", None)
+        os.environ.pop("ANTHROPIC_API_KEY", None)
+        os.environ.pop("OPENROUTER_API_KEY", None)
+        reply, provider = ui_server._cloud_chat("hard", "ESCALATE: too hard")
+        self.assertEqual(provider, "none")
+        self.assertIn("AUTOCODE_DISABLE_METERED_GROK", reply)
+        self.assertIn("No usable premium provider", reply)
+
+    def test_cloud_chat_none_says_failed_not_unconfigured(self) -> None:
+        os.environ["CURSOR_WEBHOOK_URL"] = "http://127.0.0.1:1/missing-bridge"
+        os.environ.pop("CURSOR_API_KEY", None)
+        os.environ["AUTOCODE_DELEGATE_TIMEOUT_SEC"] = "1"
+        reply, provider = ui_server._cloud_chat("hard", "ESCALATE: too hard")
+        self.assertEqual(provider, "none")
+        self.assertIn("Premium provider(s) failed", reply)
+        self.assertNotIn("No usable premium provider", reply)
 
     def test_chat_escalates_to_cursor_api_key(self) -> None:
         os.environ["CURSOR_API_KEY"] = "test-cursor-key"

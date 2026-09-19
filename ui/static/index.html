@@ -77,7 +77,7 @@
         <div id="connectionsList" class="connections-list"></div>
       </section>
       <section class="account-pane" data-pane="machine">
-        <p class="section-note">Jetson-wide settings: Cloudflare tunnel install token, encryption key, and GitHub auto-update. Changes write to the machine `.env` and keep services running via autostart.</p>
+        <p class="section-note">Jetson-wide settings: Cloudflare tunnel install token, encryption key, and GitHub auto-update. Force update will not pull a dirty tree — Discard local changes resets tracked files to origin/main and keeps <code>.env</code>.</p>
         <p class="meta" id="machineStatusNote"></p>
         <label for="machTunnel">Cloudflare Tunnel install token</label>
         <input id="machTunnel" type="password" autocomplete="off" placeholder="(saved — enter to replace)" />
@@ -92,6 +92,7 @@
         <div class="conn-actions">
           <button type="button" class="btn primary compact" id="machSave">Save machine settings</button>
           <button type="button" class="btn compact" id="machForceUpdate">Force update now</button>
+          <button type="button" class="btn compact" id="machResetUpdate">Discard local changes and update</button>
           <button type="button" class="btn compact" id="machWakeOllama">Wake Ollama</button>
         </div>
         <pre class="machine-log" id="machineLog" hidden></pre>
