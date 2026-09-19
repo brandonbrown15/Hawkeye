@@ -933,7 +933,8 @@ input:focus, select:focus, textarea:focus {
 }
 
 .chat-empty {
-  margin: auto 0;
+  margin: auto;
+  width: min(28rem, 100%);
   padding: 1.25rem 0.65rem 1.5rem;
   text-align: left;
 }

@@ -1132,8 +1132,9 @@
   });
 
   try {
-    const saved = sessionStorage.getItem("hawkeye-pane");
-    if (saved) setPane(saved);
+    const wanted = new URLSearchParams(location.search).get("pane")
+      || sessionStorage.getItem("hawkeye-pane");
+    if (wanted) setPane(wanted);
   } catch (_) { /* ignore */ }
 
   document.querySelectorAll(".view-tab").forEach((btn) => {
