@@ -609,6 +609,8 @@
         if (data.escalated && data.cloud_reply) appendChat("cloud", `[${data.provider || "cloud"}] ${data.cloud_reply}`);
         if (data.seeded_task) {
           appendChat("system", `Added to Notion: ${data.seeded_task}`);
+        }
+        if (data.seeded_task || (data.pm && data.pm.ok && (data.pm.action === "update" || data.pm.action === "create"))) {
           loadBoard().catch(() => {});
         }
         toast(data.escalated ? `Escalated to ${data.provider || "premium"}` : "Hawkeye replied");

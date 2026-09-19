@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, field
@@ -16,6 +17,45 @@ from notion import client as nc
 
 NOTION_VERSION = nc.NOTION_VERSION
 API = nc.API
+
+ALLOWED_STATUSES = {
+    "Backlog",
+    "Ready",
+    "Running",
+    "Needs review",
+    "Done",
+    "Blocked",
+    "Now",
+    "Next",
+    "Parked",
+    "Open",
+    "Answered",
+    "Deferred",
+}
+
+CLOSED_STATUSES = frozenset({"done", "parked", "answered", "deferred"})
+
+_STATUS_ALIASES = {
+    "done": "Done",
+    "complete": "Done",
+    "completed": "Done",
+    "finished": "Done",
+    "ready": "Ready",
+    "blocked": "Blocked",
+    "backlog": "Backlog",
+    "running": "Running",
+    "in progress": "Running",
+    "needs review": "Needs review",
+    "review": "Needs review",
+    "now": "Now",
+    "next": "Next",
+    "parked": "Parked",
+    "open": "Open",
+    "answered": "Answered",
+    "deferred": "Deferred",
+}
+
+_TASK_ID_RE = re.compile(r"^([A-Za-z]{1,8})-?(\d{1,6})$")
 
 
 class NotionError(Exception):
@@ -58,6 +98,27 @@ class TaskCard:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "TaskCard":
+        extra = data.get("extra") if isinstance(data.get("extra"), dict) else {}
+        return cls(
+            page_id=str(data.get("page_id") or ""),
+            task_id=str(data.get("task_id") or ""),
+            name=str(data.get("name") or ""),
+            status=str(data.get("status") or ""),
+            priority=str(data.get("priority") or ""),
+            complexity=str(data.get("complexity") or ""),
+            model_route=str(data.get("model_route") or ""),
+            area=str(data.get("area") or ""),
+            acceptance=str(data.get("acceptance") or ""),
+            notes=str(data.get("notes") or ""),
+            branch_pr=str(data.get("branch_pr") or ""),
+            repo=str(data.get("repo") or ""),
+            url=str(data.get("url") or ""),
+            board_id=str(data.get("board_id") or ""),
+            extra=dict(extra),
+        )
 
 
 # Known BrownHawke boards (env overrides win).
@@ -289,23 +350,117 @@ def get_task(page_id: str, *, board_id: str = "hawkeye") -> TaskCard:
     return serialize_build_queue_page(page, board_id=board.id)
 
 
-def update_task_status(page_id: str, status: str, *, pr_url: str | None = None) -> TaskCard:
-    status = (status or "").strip()
-    allowed = {
-        "Backlog",
-        "Ready",
-        "Running",
-        "Needs review",
-        "Done",
-        "Blocked",
-        "Now",
-        "Next",
-        "Parked",
-        "Open",
-        "Answered",
-        "Deferred",
+def normalize_task_id(raw: str) -> str:
+    text = (raw or "").strip()
+    match = _TASK_ID_RE.match(text)
+    if not match:
+        return text.upper()
+    return f"{match.group(1).upper()}-{match.group(2)}"
+
+
+def normalize_status(raw: str) -> str | None:
+    text = re.sub(r"\s+", " ", (raw or "").strip().rstrip("."))
+    text = re.sub(r"(?i)\s+please$", "", text).strip()
+    if not text:
+        return None
+    for allowed in ALLOWED_STATUSES:
+        if text.lower() == allowed.lower():
+            return allowed
+    return _STATUS_ALIASES.get(text.lower())
+
+
+def is_open_status(status: str) -> bool:
+    return (status or "").strip().lower() not in CLOSED_STATUSES
+
+
+def filter_tasks(
+    tasks: list[TaskCard],
+    *,
+    open_only: bool = False,
+    priorities: list[str] | None = None,
+    status: str | None = None,
+) -> list[TaskCard]:
+    prios = {p.strip().upper() for p in (priorities or []) if str(p).strip()}
+    status_l = (status or "").strip().lower()
+    out: list[TaskCard] = []
+    for task in tasks:
+        if open_only and not is_open_status(task.status):
+            continue
+        if status_l and status_l not in ("all", "*", "") and (task.status or "").lower() != status_l:
+            continue
+        if prios and (task.priority or "").upper() not in prios:
+            continue
+        out.append(task)
+    return out
+
+
+def find_task_by_id(task_id: str, board_id: str = "hawkeye") -> TaskCard | None:
+    wanted = normalize_task_id(task_id)
+    if not wanted:
+        return None
+    for task in query_board_tasks(board_id, status=None, limit=100):
+        if normalize_task_id(task.task_id) == wanted:
+            return task
+    return None
+
+
+def create_task(
+    name: str,
+    *,
+    board_id: str = "hawkeye",
+    status: str = "Ready",
+    priority: str = "P2",
+    acceptance: str = "",
+    notes: str = "",
+    complexity: str = "Local-safe",
+    model_route: str = "Local Hermes",
+    area: str = "",
+) -> TaskCard:
+    """Insert a Build Queue card (Hawkeye / Autocode boards)."""
+    board = get_board(board_id)
+    if not board.db_id:
+        raise NotionError(
+            f"Board {board_id} has no database id. Set {board.env_key} in .env.",
+            status=503,
+        )
+    if board.kind == "projects":
+        raise NotionError(
+            "Creating tasks on ROSE Projects is not supported from chat yet. Use the Hawkeye board.",
+            status=400,
+        )
+    name = (name or "").strip()
+    if not name:
+        raise NotionError("task name required", status=400)
+    resolved = normalize_status(status) or (status or "").strip()
+    if resolved not in ALLOWED_STATUSES:
+        raise NotionError(f"Unsupported status: {status}", status=400)
+    priority = (priority or "P2").strip().upper()
+    if not re.fullmatch(r"P[0-3]", priority):
+        raise NotionError(f"Unsupported priority: {priority}", status=400)
+    props: dict[str, Any] = {
+        "Name": {"title": nc.title(name)},
+        "Status": {"select": {"name": resolved}},
+        "Priority": {"select": {"name": priority}},
+        "Complexity": {"select": {"name": complexity or "Local-safe"}},
+        "Model route": {"select": {"name": model_route or "Local Hermes"}},
+        "Acceptance": {
+            "rich_text": nc.rich_text(acceptance or f"Queued from Hawkeye chat: {name}")
+        },
+        "Notes": {"rich_text": nc.rich_text(notes or "Created from Hawkeye chat")},
     }
-    if status not in allowed:
+    if area:
+        props["Area"] = {"select": {"name": area}}
+    page = notion_api(
+        "POST",
+        "/pages",
+        {"parent": {"database_id": board.db_id}, "properties": props},
+    )
+    return serialize_build_queue_page(page, board_id=board.id)
+
+
+def update_task_status(page_id: str, status: str, *, pr_url: str | None = None) -> TaskCard:
+    status = normalize_status(status) or (status or "").strip()
+    if status not in ALLOWED_STATUSES:
         raise NotionError(f"Unsupported status: {status}", status=400)
     props: dict[str, Any] = {"Status": {"select": {"name": status}}}
     if pr_url:

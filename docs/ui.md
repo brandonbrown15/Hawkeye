@@ -97,7 +97,7 @@ Mutating actions require a session token injected into the page (CSRF guard).
 
 ## Talk to Hawkeye / Autocode
 
-The dashboard chat box talks to the **local** Ollama model first (free all day on the Jetson).
+The dashboard chat box talks to the **local** Ollama model first (free all day on the Jetson). Board commands (`what's on the Hawkeye board?`, `show open P0/P1`, `mark HK-xx Done`, `add a Ready task: …`) are handled locally against Notion and skip Cursor/Grok. Details: [pm.md](pm.md).
 
 1. You type an instruction (locally, Tailscale, or private domain after login).
 2. Local model answers when it can (with **conversation history** + a short Hawkeye workspace brief — it already knows `https://github.com/brandonbrown15/Hawkeye`).

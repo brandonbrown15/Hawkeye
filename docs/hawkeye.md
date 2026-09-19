@@ -147,6 +147,16 @@ ollama pull nomic-embed-text     # better embeddings
 
 Same Notion autopilot / continuous drain as Autocode when you enable those flags.
 
+## Chat PM (HK-5 slice)
+
+From **Talk to Hawkeye** you can drive the Build Queue without leaving chat:
+
+- `what's on the Hawkeye board?` / `show open P0/P1`
+- `mark HK-xx Done` / `set HK-xx to Ready`
+- `add a Ready task: …`
+
+These use the Connections Notion token + default Hawkeye queue (`71e3f07a3dda41ae85f158c1f24e82b8`) via `notion/pm.py`. They never require a Grok webhook and they do not replace Cursor escalate for hard coding asks. See [pm.md](pm.md).
+
 ## Env reference
 
 | Variable | Default (Hawkeye) | Meaning |
