@@ -3,7 +3,7 @@
 Each `@brownhawke.engineering` login has **their own**:
 
 1. **Profile** — first name, last name, employee number  
-2. **Connections** — Cloudflare, Notion, GitHub, Cursor, Claude, ChatGPT/Codex, Grok, OpenRouter, Brave Search, Telegram (secrets encrypted per user; used at runtime for your session)  
+2. **Connections** — Cloudflare, Notion, GitHub, Cursor, Claude, ChatGPT/Codex, Grok, OpenRouter, Brave Search, Telegram, WhatsApp Cloud API (secrets encrypted per user; used at runtime for your session)  
 3. **Machine** — Jetson-wide tunnel token, encryption key, GitHub auto-update (writes `.env`, restarts services)  
 4. **Projects** — account-owned workspaces that can be shared with teammates  
 5. **Messages** — direct messages between coworkers  
@@ -43,6 +43,7 @@ Stored in `$AUTOCODE_DATA_ROOT/hawkeye/accounts/profiles.json` (or `state/hawkey
 | OpenRouter | API key |
 | Brave Search | API key (else DuckDuckGo HTML). Used for chat web search **only when Local only is off**. |
 | Telegram | Bot token + chat id |
+| WhatsApp | Phone number id, access token, verify token, app secret; Add/Remove allowlist (example `+447710086970`) + notify rules. Webhook URL is shown on the card — paste into Meta. [whatsapp.md](whatsapp.md) |
 
 Encrypt at rest with `HAWKEYE_MEMORY_KEY` or dedicated `HAWKEYE_SECRETS_KEY` (set under **Account → Machine** first — saves are refused without it). The UI never displays raw secrets after save.
 

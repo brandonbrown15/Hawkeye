@@ -35,6 +35,7 @@ PROVIDERS = (
     "openrouter",
     "brave",
     "telegram",
+    "whatsapp",
 )
 
 # Maps UI fields → machine .env fallbacks (first non-empty wins).
@@ -57,6 +58,27 @@ ENV_FALLBACKS: dict[tuple[str, str], tuple[str, ...]] = {
     ("brave", "api_key"): ("BRAVE_SEARCH_API_KEY",),
     ("telegram", "bot_token"): ("TELEGRAM_BOT_TOKEN",),
     ("telegram", "chat_id"): ("TELEGRAM_CHAT_ID",),
+    ("whatsapp", "phone_number_id"): (
+        "WHATSAPP_PHONE_NUMBER_ID",
+        "HAWKEYE_WHATSAPP_PHONE_NUMBER_ID",
+    ),
+    ("whatsapp", "access_token"): (
+        "WHATSAPP_ACCESS_TOKEN",
+        "HAWKEYE_WHATSAPP_ACCESS_TOKEN",
+    ),
+    ("whatsapp", "verify_token"): (
+        "WHATSAPP_VERIFY_TOKEN",
+        "HAWKEYE_WHATSAPP_VERIFY_TOKEN",
+    ),
+    ("whatsapp", "app_secret"): (
+        "WHATSAPP_APP_SECRET",
+        "HAWKEYE_WHATSAPP_APP_SECRET",
+    ),
+    ("whatsapp", "allowed_numbers"): (
+        "WHATSAPP_ALLOWED_NUMBERS",
+        "HAWKEYE_WHATSAPP_ALLOWED_NUMBERS",
+    ),
+    ("whatsapp", "notify_rules"): ("HAWKEYE_WHATSAPP_NOTIFY_RULES",),
 }
 
 PROVIDER_META = {
@@ -119,6 +141,27 @@ PROVIDER_META = {
         "fields": ["bot_token", "chat_id"],
         "public_fields": ["chat_id"],
         "hint": "Bot token + chat id for digests / alerts",
+    },
+    "whatsapp": {
+        "label": "WhatsApp (Cloud API)",
+        "fields": [
+            "phone_number_id",
+            "access_token",
+            "verify_token",
+            "app_secret",
+            "allowed_numbers",
+            "notify_rules",
+        ],
+        "connect_fields": ["access_token", "phone_number_id"],
+        "public_fields": ["phone_number_id", "notify_rules"],
+        "list_fields": ["allowed_numbers"],
+        "webhook_path": "/api/webhooks/whatsapp",
+        "hint": (
+            "Official Meta WhatsApp Cloud API. Save phone number id + access token + "
+            "verify token + app secret. Add Brandon's WhatsApp (+447710086970) on the "
+            "allowlist — empty list rejects everyone. "
+            "notify_rules default: queue_empty,blocked,human (add digest to opt in)."
+        ),
     },
 }
 
@@ -244,7 +287,7 @@ def list_connections(email: str) -> dict[str, Any]:
             status = "machine"
         else:
             status = "disconnected"
-        out[pid] = {
+        item = {
             "id": pid,
             "label": meta["label"],
             "hint": meta["hint"],
@@ -259,6 +302,27 @@ def list_connections(email: str) -> dict[str, Any]:
             "machine_fallback": machine,
             "encryption": "on" if _secrets_key() else "off",
         }
+        webhook_path = str(meta.get("webhook_path") or "")
+        if webhook_path:
+            item["webhook_url"] = f"https://{ui_auth.public_host()}{webhook_path}"
+            item["webhook_path"] = webhook_path
+        list_fields = list(meta.get("list_fields") or [])
+        if list_fields:
+            item["list_fields"] = list_fields
+        if pid == "whatsapp":
+            raw_allow = get_secret(email, "whatsapp", "allowed_numbers") or _env_fallback(
+                "whatsapp", "allowed_numbers"
+            )
+            try:
+                from whatsapp.allowlist import EXAMPLE_E164
+                from whatsapp.config import parse_number_list
+
+                item["allowed_numbers"] = parse_number_list(raw_allow)
+                item["allowed_numbers_example"] = EXAMPLE_E164
+            except Exception:  # noqa: BLE001
+                item["allowed_numbers"] = []
+                item["allowed_numbers_example"] = "+447710086970"
+        out[pid] = item
     return {
         "ok": True,
         "email": email,

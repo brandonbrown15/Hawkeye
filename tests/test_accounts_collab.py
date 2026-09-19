@@ -177,6 +177,7 @@ class AccountsCollabTests(unittest.TestCase):
             "openrouter",
             "brave",
             "telegram",
+            "whatsapp",
         ):
             self.assertIn(pid, connections.PROVIDERS)
             self.assertIn(pid, connections.PROVIDER_META)

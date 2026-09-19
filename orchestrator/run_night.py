@@ -1011,6 +1011,13 @@ def main() -> None:
             )
         sink = NotionSink()
 
+    try:
+        from whatsapp.notify import wrap_sink
+
+        sink = wrap_sink(sink)
+    except Exception as e:  # noqa: BLE001
+        print(f"[whatsapp] sink wrap skipped: {e}")
+
     if not args.skip_health_feed and not args.dry_run:
         try:
             from orchestrator.self_feed import maybe_seed_routine_health
@@ -1037,9 +1044,17 @@ def main() -> None:
                 digest.append("No Ready tasks.")
                 ops.write_status(phase="done", detail="no ready tasks", clear_task=True)
                 ops.telegram_notify(f"Autocode cycle {run_id}: no Ready tasks")
+                ops.operator_notify(
+                    "queue_empty",
+                    f"Hawkeye: no Ready tasks (cycle {run_id}). Queue is empty.",
+                )
             else:
                 print("Ready queue drained.")
                 digest.append(f"Drained Ready queue after {processed} task(s).")
+                ops.operator_notify(
+                    "queue_empty",
+                    f"Hawkeye: Ready queue drained after {processed} task(s) (cycle {run_id}).",
+                )
             break
 
         for task in tasks[:batch]:
@@ -1112,6 +1127,10 @@ def main() -> None:
     print(f"Digest: {digest_path}")
     print("\n".join(digest))
     ops.telegram_notify(f"Autocode cycle {run_id} {phase}\n" + "\n".join(digest[-8:]))
+    ops.operator_notify(
+        "digest",
+        f"Hawkeye cycle {run_id} {phase}\n" + "\n".join(digest[-8:]),
+    )
     send_digest(digest_path)
 
 

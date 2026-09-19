@@ -18,6 +18,7 @@ This is **not** the public [Autocode](https://github.com/brandonbrown15/Autocode
 | **Vector memory** | Chat/decisions on the 4TB SSD (`nomic-embed-text`) |
 | **Web research** | Deep page-read lookup + citations in chat |
 | **Email inbox** | Resend inbound → local draft → approve to send |
+| **WhatsApp** | Official Cloud API chat + queue-empty / needs-human notifies |
 | **Cursor / Grok** | Escalate strenuous asks via webhooks |
 | **Login** | `@brownhawke.engineering` work emails only |
 | **Per-user accounts** | Profile, encrypted connections, shared projects, DMs |
@@ -261,6 +262,14 @@ HAWKEYE_MAIL_FROM=hawkeye@agent.brownhawke.engineering
 Webhook URL: `https://hawkeye.brownhawke.engineering/api/webhooks/resend`  
 Approve drafts in the UI **Email inbox**. Guide: [docs/mail.md](docs/mail.md).
 
+### 5c. WhatsApp (Cloud API)
+
+Official Meta WhatsApp Cloud API (no scrapers). Save phone number id / tokens under **Account → Connections**, allowlist Brandon’s number, and point Meta at:
+
+`https://hawkeye.brownhawke.engineering/api/webhooks/whatsapp`
+
+Inbound text uses the same chat/escalate path as the UI. Hawkeye texts Brandon when Ready drains, a task is Blocked, or a human decision is needed. Guide: [docs/whatsapp.md](docs/whatsapp.md).
+
 ### 6. Boot auto-start
 
 ```bash
@@ -351,6 +360,7 @@ More: [docs/architecture.md](docs/architecture.md) · [docs/how-ai-talks.md](doc
 | [docs/memory.md](docs/memory.md) | Vector memory |
 | [docs/research.md](docs/research.md) | Deep web research |
 | [docs/mail.md](docs/mail.md) | Email inbox + answer |
+| [docs/whatsapp.md](docs/whatsapp.md) | WhatsApp Cloud API chat + notifies |
 | [docs/login.md](docs/login.md) | Login path, failure modes, add Mark on the Jetson |
 | [docs/accounts.md](docs/accounts.md) | Per-user connections, projects, DMs |
 | [docs/security.md](docs/security.md) | Login, tunnel, memory privacy |

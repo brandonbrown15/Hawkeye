@@ -27,6 +27,7 @@ Overnight / continuous worker timers (separate from UI boot):
 - Ready checklist (Notion, Hermes, Ollama, GitHub, autopilot / continuous)
 - **Run work cycle** — drain Ready Notion tasks now
 - **Talk to Autocode** — chat with the local LLM; auto-escalates to a larger cloud model when needed
+- **WhatsApp** — same chat path via Cloud API webhook; queue-empty / Blocked / needs-human notifies ([whatsapp.md](whatsapp.md))
 - Mock cycle for dry practice
 - Tail of the latest log
 

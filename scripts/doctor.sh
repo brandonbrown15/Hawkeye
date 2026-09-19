@@ -207,6 +207,15 @@ if [[ -n "${TELEGRAM_BOT_TOKEN:-}" && -n "${TELEGRAM_CHAT_ID:-}" ]]; then
 else
   warn_msg "Telegram unset — no remote progress pings"
 fi
+if [[ -n "${WHATSAPP_ACCESS_TOKEN:-}${HAWKEYE_WHATSAPP_ACCESS_TOKEN:-}" && -n "${WHATSAPP_PHONE_NUMBER_ID:-}${HAWKEYE_WHATSAPP_PHONE_NUMBER_ID:-}" ]]; then
+  if [[ -n "${WHATSAPP_ALLOWED_NUMBERS:-}${HAWKEYE_WHATSAPP_ALLOWED_NUMBERS:-}" ]]; then
+    pass "WhatsApp Cloud API configured (allowlist set)"
+  else
+    warn_msg "WhatsApp token set but WHATSAPP_ALLOWED_NUMBERS empty — inbound will be rejected"
+  fi
+else
+  warn_msg "WhatsApp unset — Account → Connections → WhatsApp (see docs/whatsapp.md)"
+fi
 if command -v tailscale >/dev/null 2>&1; then
   if tailscale status >/dev/null 2>&1; then pass "Tailscale up"; else warn_msg "Tailscale installed but not up"; fi
 else
