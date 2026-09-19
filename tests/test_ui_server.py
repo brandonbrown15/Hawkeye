@@ -221,7 +221,7 @@ class UiHelpersTests(unittest.TestCase):
             self.assertIn("chatEmpty", html)
             self.assertIn("chatStatus", html)
             self.assertIn("Talk to Hawkeye", html)
-            self.assertIn("Engineering command center", html)
+            self.assertIn("Boards, chat, and machine", html)
             self.assertIn("pane-switch", html)
             self.assertIn('data-pane-view="chat"', html)
 
@@ -727,6 +727,33 @@ class UiHelpersTests(unittest.TestCase):
         self.assertIn("never land on a long board scroll", js)
         css = (ROOT / "ui/static/app.css").read_text(encoding="utf-8")
         self.assertIn("100dvh - 16rem", css)
+
+    def test_overlay_close_is_explicit_and_not_blocked_by_nested_forms(self) -> None:
+        html = (ROOT / "ui/static/index.html").read_text(encoding="utf-8")
+        js = (ROOT / "ui/static/app.js").read_text(encoding="utf-8")
+        css = (ROOT / "ui/static/app.css").read_text(encoding="utf-8")
+        self.assertIn('id="accountClose"', html)
+        self.assertIn('type="button" class="btn ghost compact overlay-close" id="accountClose"', html)
+        self.assertNotIn('method="dialog"', html)
+        self.assertNotIn('value="close"', html)
+        start = html.find('id="accountDialog"')
+        end = html.find("</dialog>", start)
+        dialog = html[start:end]
+        self.assertIn('<div class="account-panel">', dialog)
+        self.assertIn('id="newProjectForm"', dialog)
+        self.assertIn('id="dmForm"', dialog)
+        self.assertLess(dialog.find("<div"), dialog.find("<form"))
+        self.assertIn("function closeAccount", js)
+        self.assertIn("function closeTopOverlay", js)
+        self.assertIn('ev.key !== "Escape"', js)
+        self.assertIn("closeAccount()", js)
+        self.assertIn("closeDrawer()", js)
+        self.assertIn(".overlay-close", css)
+        self.assertIn("pointer-events: auto", css)
+        self.assertIn("z-index: 60", css)
+        self.assertNotIn("Libre Baskerville", html)
+        self.assertNotIn("Libre Baskerville", css)
+        self.assertNotIn("radial-gradient", css)
 
 if __name__ == "__main__":
     unittest.main()
