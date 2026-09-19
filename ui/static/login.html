@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Sign in · {{PRODUCT}}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -11,24 +11,25 @@
   <style>
     .login-wrap {
       min-height: 100vh;
+      min-height: 100dvh;
       display: grid;
       place-items: center;
-      padding: 2rem 1.25rem;
+      padding: max(1.25rem, env(safe-area-inset-top)) 1.15rem max(1.5rem, env(safe-area-inset-bottom));
     }
     .login-card {
-      width: min(420px, 100%);
-      padding: 1.75rem 1.5rem 1.5rem;
-      background: rgba(255,255,255,0.92);
+      width: min(440px, 100%);
+      padding: 1.6rem 1.35rem 1.35rem;
+      background: rgba(255,255,255,0.94);
       border: 1px solid rgba(0,45,98,0.14);
     }
     .login-card h1 {
-      margin: 0.75rem 0 0.35rem;
+      margin: 0.7rem 0 0.35rem;
       font-family: "Libre Baskerville", Georgia, serif;
-      font-size: 1.85rem;
+      font-size: clamp(1.55rem, 5vw, 1.85rem);
       color: #002d62;
     }
-    .login-card p {
-      margin: 0 0 1.25rem;
+    .login-lede {
+      margin: 0 0 1.1rem;
       color: #5a6b82;
       line-height: 1.45;
     }
@@ -37,25 +38,65 @@
       margin: 0.75rem 0 0.35rem;
       font-size: 0.92rem;
       color: #002d62;
+      font-weight: 600;
     }
-    .login-card input {
+    .login-card input[type="text"],
+    .login-card input[type="email"],
+    .login-card input[type="password"] {
       width: 100%;
-      padding: 0.7rem 0.85rem;
+      padding: 0.75rem 0.85rem;
       border: 1px solid rgba(0,45,98,0.25);
       background: #f7f9fc;
       color: #002d62;
       font: inherit;
+      font-size: 16px; /* iOS: avoid input zoom */
+      min-height: 44px;
+      border-radius: 2px;
     }
+    .login-card input:focus {
+      outline: 2px solid rgba(0,45,98,0.35);
+      outline-offset: 1px;
+    }
+    .pw-row {
+      display: flex;
+      gap: 0.45rem;
+      align-items: stretch;
+    }
+    .pw-row input { flex: 1; min-width: 0; }
+    .pw-toggle {
+      flex: 0 0 auto;
+      min-width: 4.6rem;
+      min-height: 44px;
+      border: 1px solid rgba(0,45,98,0.25);
+      background: #fff;
+      color: #002d62;
+      font: inherit;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .pw-toggle:hover { background: rgba(0,45,98,0.06); }
     .login-card .btn {
       width: 100%;
       margin-top: 1.15rem;
       justify-content: center;
+      min-height: 48px;
+      font-size: 1rem;
     }
+    .login-card .btn[disabled] { pointer-events: none; }
     .login-err {
-      min-height: 1.25rem;
-      margin-top: 0.75rem;
+      min-height: 1.35rem;
+      margin: 0.75rem 0 0;
       color: #9b2c2c;
-      font-size: 0.9rem;
+      font-size: 0.92rem;
+      line-height: 1.4;
+    }
+    .login-err[data-code] { font-weight: 600; }
+    .login-hint {
+      margin: 0.35rem 0 0;
+      color: #5a6b82;
+      font-size: 0.86rem;
+      line-height: 1.4;
     }
     .login-logo {
       width: 4.5rem;
@@ -69,25 +110,68 @@
       border-top: 1px solid rgba(0,45,98,0.12);
       padding-top: 0.75rem;
     }
-    .login-profile summary {
+    .login-profile summary,
+    .login-help summary {
       cursor: pointer;
       color: #002d62;
       font-size: 0.92rem;
       margin-bottom: 0.35rem;
+      font-weight: 600;
+    }
+    .login-help {
+      margin-top: 0.85rem;
+      color: #5a6b82;
+      font-size: 0.86rem;
+      line-height: 1.45;
+    }
+    .login-help ol { margin: 0.4rem 0 0; padding-left: 1.2rem; }
+    .login-help code {
+      font-size: 0.78rem;
+      word-break: break-word;
+    }
+    .login-banner {
+      display: none;
+      margin: 0 0 1rem;
+      padding: 0.7rem 0.8rem;
+      border: 1px solid rgba(155, 44, 44, 0.35);
+      background: #fdf4f4;
+      color: #7a1f1f;
+      font-size: 0.9rem;
+      line-height: 1.4;
+    }
+    .login-banner.is-on { display: block; }
+    .login-banner.is-info {
+      border-color: rgba(0,45,98,0.22);
+      background: #f3f6fa;
+      color: #002d62;
+    }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      border: 0;
     }
   </style>
 </head>
 <body>
   <div class="atmosphere" aria-hidden="true"></div>
   <div class="login-wrap">
-    <form class="login-card" id="loginForm">
+    <form class="login-card" id="loginForm" novalidate>
       <img class="login-logo" src="/brand/brownhawke-logo.jpg" alt="BrownHawke Engineering" width="72" height="69" />
       <h1>{{PRODUCT}}</h1>
-      <p>BrownHawke Engineering work platform — <code>@brownhawke.engineering</code> email required. Free local model all day; Cursor &amp; Grok take the hard jobs.</p>
+      <p class="login-lede">BrownHawke work platform. Sign in with your <code>@{{EMAIL_DOMAIN}}</code> email. This is the <strong>Hawkeye account</strong> password — not GitHub, not Outlook, and not Cloudflare Access.</p>
+      <div class="login-banner" id="gateBanner" role="status"></div>
       <label for="user">Work email</label>
-      <input id="user" name="email" type="email" autocomplete="username" placeholder="you@brownhawke.engineering" required />
+      <input id="user" name="email" type="text" inputmode="email" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="you@{{EMAIL_DOMAIN}}" required />
       <label for="pass">Password</label>
-      <input id="pass" name="password" type="password" autocomplete="current-password" required />
+      <div class="pw-row">
+        <input id="pass" name="password" type="password" autocomplete="current-password" required />
+        <button class="pw-toggle" type="button" id="pwToggle" aria-pressed="false" aria-controls="pass">Show</button>
+      </div>
       <details class="login-profile">
         <summary>First-time profile (name + employee #)</summary>
         <label for="firstName">First name</label>
@@ -97,20 +181,139 @@
         <label for="empNo">Employee number</label>
         <input id="empNo" name="employee_number" autocomplete="off" placeholder="BH-0042" />
       </details>
-      <button class="btn primary" type="submit">Sign in</button>
+      <button class="btn primary" type="submit" id="submitBtn">Sign in</button>
       <p class="login-err" id="err" role="alert"></p>
+      <p class="login-hint" id="hint"></p>
+      <details class="login-help" id="forgotHelp">
+        <summary>Forgot password / new teammate</summary>
+        <p>There is no self-serve reset. An admin on the Jetson sets the password (prompted locally — never commit it):</p>
+        <ol>
+          <li><code>cd ~/Hawkeye</code></li>
+          <li><code>./scripts/hawkeye accounts set-password --email you@{{EMAIL_DOMAIN}}</code></li>
+          <li>If the UI was already running, it reloads <code>users.json</code> on the next sign-in. Restart only if it still fails: <code>systemctl --user restart hawkeye-ui.service</code></li>
+        </ol>
+        <p>Canonical URL: <code>https://{{PUBLIC_HOST}}/login</code></p>
+      </details>
     </form>
   </div>
   <script>
+    const DOMAIN = "{{EMAIL_DOMAIN}}";
+    const PUBLIC_HOST = "{{PUBLIC_HOST}}";
+
+    function normalizeEmail(raw) {
+      let email = (raw || "").trim().toLowerCase();
+      if (email && !email.includes("@")) email = `${email}@${DOMAIN}`;
+      return email;
+    }
+
+    function showError(message, hint, code) {
+      const err = document.getElementById("err");
+      const hintEl = document.getElementById("hint");
+      err.textContent = message || "";
+      if (code) err.setAttribute("data-code", code);
+      else err.removeAttribute("data-code");
+      hintEl.textContent = hint || "";
+      if (code === "unknown_account" || code === "wrong_password" || code === "not_configured") {
+        document.getElementById("forgotHelp").open = true;
+      }
+    }
+
+    function classifyHttpFailure(r, data, text) {
+      const loc = (r.headers.get("Location") || "").toLowerCase();
+      const html = `${text || ""}`.toLowerCase();
+      if (r.status === 403 || r.status === 302 || loc.includes("cloudflareaccess") || html.includes("cloudflare access")) {
+        return {
+          code: "access_blocked",
+          error: "Cloudflare Access blocked this request before Hawkeye saw it.",
+          hint: "Finish the Cloudflare Access email/PIN (or ask Brandon to allowlist your address), then sign in here with your Hawkeye password.",
+        };
+      }
+      if (r.status >= 502) {
+        return {
+          code: "tunnel_down",
+          error: "Hawkeye did not answer (tunnel or UI process down).",
+          hint: "On the Jetson: systemctl --user status hawkeye-ui.service hawkeye-tunnel.service",
+        };
+      }
+      if (data && (data.error || data.code)) return data;
+      if (html.includes("<html") || html.includes("<!doctype")) {
+        return {
+          code: "html_error",
+          error: "The server returned a page instead of a login response.",
+          hint: "Confirm you are on https://" + PUBLIC_HOST + " and not a cached error page.",
+        };
+      }
+      return { code: "unknown", error: `Login failed (${r.status || "network"})` };
+    }
+
+    document.getElementById("pwToggle").addEventListener("click", () => {
+      const input = document.getElementById("pass");
+      const btn = document.getElementById("pwToggle");
+      const show = input.type === "password";
+      input.type = show ? "text" : "password";
+      btn.textContent = show ? "Hide" : "Show";
+      btn.setAttribute("aria-pressed", show ? "true" : "false");
+    });
+
+    document.getElementById("user").addEventListener("blur", (ev) => {
+      const next = normalizeEmail(ev.target.value);
+      if (next) ev.target.value = next;
+    });
+
+    (async () => {
+      const banner = document.getElementById("gateBanner");
+      try {
+        const r = await fetch("/api/auth", { headers: { Accept: "application/json" }, credentials: "same-origin" });
+        const text = await r.text();
+        let data = {};
+        try { data = JSON.parse(text); } catch (_) { data = {}; }
+        if (!r.ok || !data || typeof data.private_mode === "undefined") {
+          const fail = classifyHttpFailure(r, data, text);
+          banner.textContent = fail.error + (fail.hint ? " " + fail.hint : "");
+          banner.classList.add("is-on");
+          return;
+        }
+        if (data.authed && data.user) {
+          location.replace("/");
+          return;
+        }
+        if (data.cloudflare_access) {
+          banner.classList.add("is-on", "is-info");
+          banner.textContent = data.access_email
+            ? `Cloudflare Access already recognized ${data.access_email}. That is the network gate — still enter your Hawkeye password below.`
+            : "Cloudflare Access is on in front of Hawkeye. Finish that gate first, then use your work email password here.";
+        }
+        if (data.private_mode && data.credentials_ready === false) {
+          banner.classList.add("is-on");
+          banner.textContent = "This Jetson has no work users yet. An admin must run ./scripts/hawkeye accounts set-password on the box.";
+        }
+      } catch (e) {
+        banner.classList.add("is-on");
+        banner.textContent = "Could not reach the Hawkeye API. If you were sent to a Cloudflare Access page, complete that first. Otherwise the tunnel/UI may be down.";
+      }
+    })();
+
     document.getElementById("loginForm").addEventListener("submit", async (ev) => {
       ev.preventDefault();
-      const err = document.getElementById("err");
-      err.textContent = "";
-      const email = document.getElementById("user").value.trim();
+      const btn = document.getElementById("submitBtn");
+      if (btn.disabled) return;
+      showError("", "");
+      const email = normalizeEmail(document.getElementById("user").value);
       const password = document.getElementById("pass").value;
       const first_name = document.getElementById("firstName").value.trim();
       const last_name = document.getElementById("lastName").value.trim();
       const employee_number = document.getElementById("empNo").value.trim();
+      document.getElementById("user").value = email;
+      if (!email || !password) {
+        showError(
+          "Email and password required (autofill sometimes leaves the password empty).",
+          "Tap Show to confirm the password field is actually filled.",
+          "empty"
+        );
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = "Signing in…";
       try {
         const body = { email, username: email, password };
         if (first_name) body.first_name = first_name;
@@ -118,17 +321,38 @@
         if (employee_number) body.employee_number = employee_number;
         const r = await fetch("/api/login", {
           method: "POST",
+          credentials: "same-origin",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
           body: JSON.stringify(body),
         });
-        const data = await r.json().catch(() => ({}));
+        const text = await r.text();
+        let data = {};
+        try { data = JSON.parse(text); } catch (_) { data = {}; }
         if (!r.ok || data.ok === false) {
-          err.textContent = data.error || "Login failed";
+          const fail = classifyHttpFailure(r, data, text);
+          showError(fail.error || "Login failed", fail.hint || "", fail.code || "");
           return;
         }
-        location.href = "/";
+        // Catch the silent failure: API 200 + Set-Cookie dropped by the browser.
+        const auth = await fetch("/api/auth", {
+          headers: { Accept: "application/json" },
+          credentials: "same-origin",
+        });
+        const authData = await auth.json().catch(() => ({}));
+        if (authData.authed) {
+          location.replace("/");
+          return;
+        }
+        showError(
+          "Hawkeye accepted the password, but this browser did not keep the session cookie.",
+          "Use https://" + PUBLIC_HOST + " (not an IP or http://). Disable strict tracking prevention for this site, then retry. SameSite=Lax + Secure cookies require the HTTPS tunnel host.",
+          "cookie_not_stored"
+        );
       } catch (e) {
-        err.textContent = String(e.message || e);
+        showError(String(e.message || e), "Network error — check the tunnel and that you are not blocked by Cloudflare Access.", "network");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Sign in";
       }
     });
   </script>

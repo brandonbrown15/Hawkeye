@@ -27,7 +27,7 @@ DNS for `brownhawke.engineering` must already be on Cloudflare.
 ## Team pattern
 
 Repeat destination + rule for each engineer, e.g. `alex@brownhawke.engineering` → their inbox.  
-Hawkeye accounts are separate: `python3 scripts/set_work_user.py --email alex@brownhawke.engineering`.
+Hawkeye accounts are separate: `./scripts/hawkeye accounts set-password --email alex@brownhawke.engineering` ([login.md](login.md)).
 
 ## API (optional)
 

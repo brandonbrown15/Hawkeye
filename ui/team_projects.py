@@ -186,7 +186,7 @@ def share_project(email: str, project_id: str, *, member_email: str, role: str =
     if not ui_auth.is_allowed_email(member_email):
         raise ValueError("member must be on the allowed work domain")
     if member_email not in ui_auth.load_users():
-        raise ValueError("member has no Hawkeye login yet — add them with set_work_user.py first")
+        raise ValueError("member has no Hawkeye login yet — add them with ./scripts/hawkeye accounts set-password first")
     with _LOCK:
         data = _load()
         projects = dict(data.get("projects") or {})

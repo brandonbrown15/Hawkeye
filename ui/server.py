@@ -59,7 +59,7 @@ def build_info() -> dict[str, Any]:
         "branch": branch,
         "rev": rev,
         "pid": os.getpid(),
-        "login_errors": "v2",
+        "login_errors": "v3",
     }
 
 
@@ -252,7 +252,7 @@ def readiness(*, user: str | None = None) -> dict[str, Any]:
                 "id": "private_auth",
                 "label": f"Work login (@{ui_auth.allowed_email_domain()})",
                 "ok": ui_auth.credentials_ready(),
-                "hint": "python3 scripts/set_work_user.py --email you@brownhawke.engineering",
+                "hint": "./scripts/hawkeye accounts set-password --email you@brownhawke.engineering",
             }
         )
     memory_stats: dict[str, Any] | None = None
@@ -1158,7 +1158,16 @@ class Handler(BaseHTTPRequestHandler):
         for key, val in extra_headers or []:
             self.send_header(key, val)
         self.end_headers()
+        if getattr(self, "_head_only", False):
+            return
         self.wfile.write(body)
+
+    def _redirect(self, location: str, code: int = 302) -> None:
+        self.send_response(code)
+        self.send_header("Location", location)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _read_raw(self) -> bytes:
         length = int(self.headers.get("Content-Length", "0") or 0)
@@ -1230,12 +1239,9 @@ class Handler(BaseHTTPRequestHandler):
         if self._authed():
             return True
         if html:
-            self.send_response(302)
-            self.send_header("Location", "/login")
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
+            self._redirect("/login")
             return False
-        self._send(*json_response({"ok": False, "error": "login required"}, 401))
+        self._send(*json_response({"ok": False, "error": "login required", "code": "login_required"}, 401))
         return False
 
     def _bind_request_user(self) -> None:
@@ -1258,10 +1264,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._static("index.html", "text/html; charset=utf-8")
         if path in ("/login", "/login.html"):
             if ui_auth.private_mode_enabled() and self._authed():
-                self.send_response(302)
-                self.send_header("Location", "/")
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers()
+                self._redirect("/")
                 return
             return self._static("login.html", "text/html; charset=utf-8")
         if path == "/app.css":
@@ -1291,6 +1294,7 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception:  # noqa: BLE001
                     profile = None
             auth_user = None if _is_open_user(user) else user
+            access = ui_auth.cloudflare_access_identity(self.headers)
             return self._send(
                 *json_response(
                     {
@@ -1304,6 +1308,11 @@ class Handler(BaseHTTPRequestHandler):
                         "user": auth_user,
                         "profile": profile,
                         "build": build_info(),
+                        "login_emails": ui_auth.list_login_emails()
+                        if not ui_auth.private_mode_enabled()
+                        else [],
+                        "configured_user_count": len(ui_auth.load_users()),
+                        **access,
                     }
                 )
             )
@@ -1457,59 +1466,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(
                     *json_response({"ok": True, "private_mode": False, "token": TOKEN})
                 )
-            if not ui_auth.credentials_ready():
-                return self._send(
-                    *json_response(
-                        {
-                            "ok": False,
-                            "error": "No work users configured. "
-                            "Add @brownhawke.engineering accounts via "
-                            "python3 scripts/set_work_user.py --email …",
-                        },
-                        503,
-                    )
-                )
             email = str(data.get("email") or data.get("username") or "")
             password = str(data.get("password") or "")
-            if not email.strip() or not password:
-                return self._send(
-                    *json_response(
-                        {
-                            "ok": False,
-                            "error": "Email and password required "
-                            "(browser autofill may have left password empty — try typing it)",
-                        },
-                        401,
-                    )
-                )
-            sess = ui_auth.login(email, password)
-            if not sess:
-                # Distinguish domain vs bad secret without leaking which emails exist.
-                from ui import auth as _a
-
-                norm = _a.normalize_email(email)
-                if norm and "@" not in norm:
-                    norm = f"{norm}@{_a.allowed_email_domain()}"
-                if not _a.is_allowed_email(norm):
-                    detail = (
-                        f"only @{_a.allowed_email_domain()} emails allowed"
-                    )
-                elif norm not in _a.load_users():
-                    detail = "unknown work email (run scripts/set_work_user.py)"
-                else:
-                    detail = (
-                        "wrong password for that email "
-                        "(clear autofill / try private window)"
-                    )
-                return self._send(
-                    *json_response(
-                        {
-                            "ok": False,
-                            "error": f"Invalid email or password — {detail}",
-                        },
-                        401,
-                    )
-                )
+            sess, failure = ui_auth.authenticate(email, password)
+            if not sess or failure:
+                payload = {"ok": False, **(failure.as_dict() if failure else {"error": "Login failed", "code": "unknown"})}
+                access = ui_auth.cloudflare_access_identity(self.headers)
+                payload.update(access)
+                code = 503 if failure and failure.code == ui_auth.CODE_NOT_CONFIGURED else 401
+                return self._send(*json_response(payload, code))
             # Optional first-time profile fields on login.
             if any(k in data for k in ("first_name", "last_name", "employee_number")):
                 try:
@@ -1530,8 +1495,16 @@ class Handler(BaseHTTPRequestHandler):
                 profile = accounts.get_profile(ui_auth.session_user(sess) or email)
             except Exception:  # noqa: BLE001
                 profile = None
+            signed_email = ui_auth.session_user(sess) or ui_auth.canonicalize_email(email)
             return self._send(
-                *json_response({"ok": True, "token": TOKEN, "profile": profile}),
+                *json_response(
+                    {
+                        "ok": True,
+                        "token": TOKEN,
+                        "user": signed_email,
+                        "profile": profile,
+                    }
+                ),
                 extra_headers=[
                     (
                         "Set-Cookie",
@@ -1544,7 +1517,9 @@ class Handler(BaseHTTPRequestHandler):
             ui_auth.logout(self._session_token())
             return self._send(
                 *json_response({"ok": True}),
-                extra_headers=[("Set-Cookie", ui_auth.clear_session_cookie_header())],
+                extra_headers=[
+                    ("Set-Cookie", ui_auth.clear_session_cookie_header(secure=self._wants_secure_cookie()))
+                ],
             )
 
         if not self._require_session(path, html=False):
@@ -1863,8 +1838,30 @@ class Handler(BaseHTTPRequestHandler):
             body = html.encode("utf-8")
         elif name == "login.html":
             html = body.decode("utf-8").replace("{{PRODUCT}}", ui_auth.product_name())
+            html = html.replace("{{EMAIL_DOMAIN}}", ui_auth.allowed_email_domain())
+            html = html.replace("{{PUBLIC_HOST}}", ui_auth.public_host())
             body = html.encode("utf-8")
         self._send(200, body, content_type)
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        """Health checks / crawlers: same headers as GET, no body.
+
+        BaseHTTPRequestHandler does not implement HEAD, so Cloudflare HEAD
+        probes previously got HTTP 501 even though GET /login was fine.
+        """
+        self._head_only = True
+        try:
+            self.do_GET()
+        finally:
+            self._head_only = False
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        # Same-origin fetch does not need CORS; answer so probes are not 501.
+        self.send_response(204)
+        self.send_header("Allow", "GET, POST, HEAD, OPTIONS")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
 
 def main() -> None:
@@ -1882,7 +1879,7 @@ def main() -> None:
         print(f"Public host (tunnel): https://{ui_auth.public_host()}/")
     if ui_auth.private_mode_enabled() and not ui_auth.credentials_ready():
         print("WARNING: AUTOCODE_PRIVATE_MODE=1 but no work users configured.")
-        print("         Run: python3 scripts/set_work_user.py --email you@brownhawke.engineering")
+        print("         Run: ./scripts/hawkeye accounts set-password --email you@brownhawke.engineering")
     print("Press Ctrl+C to stop.")
     try:
         httpd.serve_forever()
