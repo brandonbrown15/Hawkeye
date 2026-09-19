@@ -26,12 +26,14 @@ UI chat is unchanged. WhatsApp keeps its own per-number history under `$AUTOCODE
 | `access_token` | yes | Permanent system-user token (or long-lived) |
 | `verify_token` | yes | Shared string you invent; Meta GET handshake must match |
 | `app_secret` | yes | App secret — HMAC-SHA256 of the POST body (`X-Hub-Signature-256`) |
-| `allowed_numbers` | no | E.164 allowlist, comma-separated (Brandon only for v1) |
+| Allowlist | no | Add/Remove E.164 numbers (not a comma box). Example: Brandon `+447710086970` |
 | `notify_rules` | no | Default `queue_empty,blocked,human`. Add `digest` to opt in. |
 
 The card shows a copyable **Webhook URL** (not a secret you type in):
 
 `https://hawkeye.brownhawke.engineering/api/webhooks/whatsapp`
+
+And an **Allowlisted numbers** editor: Add / Remove E.164 numbers. Brandon’s number is the documented example (`+447710086970`) — use **Add +447710086970** or type it. The webhook reads the same vault field `allowed_numbers`. Empty list still rejects everyone (nothing is auto-inserted).
 
 Machine `.env` is the fallback when the vault is empty (overnight / webhook has no browser session; it reads `HAWKEYE_AUTOPILOT_EMAIL` / Brandon).
 
@@ -47,7 +49,7 @@ Set `HAWKEYE_MEMORY_KEY` under **Account → Machine** before saving secrets.
    - Verify token: the same string you saved as `verify_token`
    - Subscribe to the `messages` field
 5. Copy the app **App secret** into `app_secret` (required to verify POST signatures).
-6. Allowlist Brandon’s WhatsApp number in E.164 (digits with country code, `+` optional), e.g. `15551234567`.
+6. In Connections → WhatsApp, **Add** Brandon’s number `+447710086970`. Leave the list empty only if you want every inbound/outbound message rejected.
 7. Restart the UI if you used `.env` instead of Connections (`systemctl --user restart hawkeye-ui`).
 
 Cloudflare Tunnel already publishes the Hawkeye UI; no extra open ports.
@@ -126,6 +128,7 @@ HAWKEYE_WHATSAPP_NOTIFY_RULES=queue_empty,blocked,human
 |--------|------|------|---------|
 | `GET` | `/api/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=…&hub.challenge=…` | verify token | Meta handshake — returns challenge as `text/plain` |
 | `POST` | `/api/webhooks/whatsapp` | `X-Hub-Signature-256` | Inbound messages |
+| `POST` | `/api/connections/whatsapp` | session + CSRF | `action=allowlist_add\|allowlist_remove` + `number` |
 
 Both paths are public (no Hawkeye login), the same way Resend is. The Cloudflare Tunnel must reach the UI on loopback `:8787`.
 
@@ -142,14 +145,15 @@ Covered:
 1. GET verify — matching token returns challenge; mismatch → 403
 2. POST HMAC — valid `sha256=` accepts; bad / missing signature rejected
 3. Parse Cloud API `entry[].changes[].value.messages[]` text (and ignore status-only webhooks)
-4. Allowlist reject
-5. Notify rules: queue empty / blocked / human on by default; digest off; env override
-6. `send_text` / notify use mocked `urlopen` (no live Graph calls)
+4. Allowlist reject (empty = reject all)
+5. Add/Remove persist to vault `allowed_numbers`; UI wiring (editor + example `+447710086970`)
+6. Notify rules: queue empty / blocked / human on by default; digest off; env override
+7. `send_text` / notify use mocked `urlopen` (no live Graph calls)
 
 Manual (after Meta is wired):
 
 1. Save Connections fields; copy webhook URL into Meta; click Verify
-2. Text the business number from Brandon’s allowlisted phone — reply should match UI chat
+2. **Add** `+447710086970` on the allowlist; text the business number from that phone — reply should match UI chat
 3. Pause a work cycle from the UI — WhatsApp “waiting on you”
 4. Drain Ready / mark a task Blocked — WhatsApp alert
 5. Confirm a non-allowlisted number is ignored (200 to Meta, no chat)

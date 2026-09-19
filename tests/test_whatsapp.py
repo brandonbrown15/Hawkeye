@@ -361,14 +361,20 @@ class HttpWebhookTests(WhatsAppCase):
 
 
 class ConnectionsWhatsAppTests(WhatsAppCase):
-    def test_provider_exposes_webhook_url(self) -> None:
-        from ui import accounts, auth as ui_auth, connections
+    def _acct(self) -> None:
+        from ui import accounts, auth as ui_auth
 
         os.environ["HAWKEYE_ACCOUNTS_DIR"] = str(self.tmp / "acct")
         os.environ["HAWKEYE_MEMORY_KEY"] = "test-secrets-key-for-unit-tests"
         os.environ["HAWKEYE_ALLOWED_EMAIL_DOMAIN"] = "brownhawke.engineering"
+        os.environ.pop("WHATSAPP_ALLOWED_NUMBERS", None)
         ui_auth.clear_users_cache()
         accounts.clear_cache()
+
+    def test_provider_exposes_webhook_url(self) -> None:
+        from ui import connections
+
+        self._acct()
         listed = connections.list_connections("brandon@brownhawke.engineering")
         wa = listed["providers"]["whatsapp"]
         self.assertEqual(
@@ -377,6 +383,104 @@ class ConnectionsWhatsAppTests(WhatsAppCase):
         )
         self.assertIn("phone_number_id", wa["fields"])
         self.assertIn("verify_token", wa["fields"])
+        self.assertEqual(wa["allowed_numbers"], [])
+        self.assertEqual(wa["allowed_numbers_example"], "+447710086970")
+        self.assertIn("allowed_numbers", wa["list_fields"])
+
+    def test_allowlist_add_remove_persists_vault_field(self) -> None:
+        from whatsapp import allowlist
+        from ui import connections
+
+        self._acct()
+        email = "brandon@brownhawke.engineering"
+        os.environ["WHATSAPP_ALLOWED_NUMBERS"] = "15551234567"
+        self.assertTrue(config.number_allowed("15551234567"))
+
+        added = allowlist.add_number(email, "+447710086970")
+        self.assertTrue(added["changed"])
+        self.assertEqual(added["added"], "447710086970")
+        listed = connections.list_connections(email)
+        self.assertEqual(
+            listed["providers"]["whatsapp"]["allowed_numbers"],
+            ["15551234567", "447710086970"],
+        )
+        self.assertEqual(
+            connections.get_secret(email, "whatsapp", "allowed_numbers"),
+            "15551234567,447710086970",
+        )
+
+        removed = allowlist.remove_number(email, "15551234567")
+        self.assertEqual(removed["providers"]["whatsapp"]["allowed_numbers"], ["447710086970"])
+        self.assertTrue(config.number_allowed("+44 7710 086970"))
+        self.assertFalse(config.number_allowed("15551234567"))
+
+        allowlist.remove_number(email, "447710086970")
+        self.assertEqual(
+            connections.list_connections(email)["providers"]["whatsapp"]["allowed_numbers"],
+            [],
+        )
+        # Empty vault sentinel must not fall back to machine .env.
+        self.assertFalse(config.number_allowed("15551234567"))
+        self.assertFalse(config.number_allowed("447710086970"))
+        with self.assertRaises(ValueError):
+            allowlist.add_number(email, "123")
+
+    def test_allowlist_http_add_remove(self) -> None:
+        from ui import accounts, auth as ui_auth, runtime_settings as runtime, server as ui_server
+
+        self._acct()
+        os.environ["AUTOCODE_PRIVATE_MODE"] = "0"
+        os.environ["HAWKEYE_RUNTIME_FILE"] = str(self.tmp / "runtime.json")
+        runtime.clear_cache()
+        ui_auth.clear_sessions()
+        httpd = ui_server.ThreadingHTTPServer(("127.0.0.1", 0), ui_server.Handler)
+        port = httpd.server_address[1]
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        try:
+            with request.urlopen(f"http://127.0.0.1:{port}/api/status", timeout=5) as resp:
+                token = json.loads(resp.read().decode())["token"]
+
+            def post(payload: dict) -> dict:
+                req = request.Request(
+                    f"http://127.0.0.1:{port}/api/connections/whatsapp",
+                    data=json.dumps({"token": token, **payload}).encode(),
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Autocode-Token": token,
+                    },
+                    method="POST",
+                )
+                with request.urlopen(req, timeout=5) as resp:
+                    return json.loads(resp.read().decode())
+
+            added = post({"action": "allowlist_add", "number": "+447710086970"})
+            self.assertTrue(added["ok"])
+            self.assertIn("447710086970", added["providers"]["whatsapp"]["allowed_numbers"])
+
+            with request.urlopen(f"http://127.0.0.1:{port}/api/connections", timeout=5) as resp:
+                listed = json.loads(resp.read().decode())
+            self.assertEqual(listed["providers"]["whatsapp"]["allowed_numbers"], ["447710086970"])
+
+            removed = post({"action": "allowlist_remove", "number": "447710086970"})
+            self.assertEqual(removed["providers"]["whatsapp"]["allowed_numbers"], [])
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+            runtime.clear_cache()
+            accounts.clear_cache()
+
+    def test_allowlist_ui_wiring(self) -> None:
+        js = (ROOT / "ui/static/app.js").read_text(encoding="utf-8")
+        css = (ROOT / "ui/static/app.css").read_text(encoding="utf-8")
+        html = (ROOT / "ui/static/index.html").read_text(encoding="utf-8")
+        self.assertIn("function renderWhatsAppAllowlist", js)
+        self.assertIn("allowlist_add", js)
+        self.assertIn("allowlist_remove", js)
+        self.assertIn("+447710086970", js)
+        self.assertIn("dataset.allowlistExample", js)
+        self.assertIn("conn-allowlist", css)
+        self.assertIn("Add/Remove allowlist", html)
 
 
 if __name__ == "__main__":

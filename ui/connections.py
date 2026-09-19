@@ -150,11 +150,13 @@ PROVIDER_META = {
             "notify_rules",
         ],
         "connect_fields": ["access_token", "phone_number_id"],
-        "public_fields": ["phone_number_id", "allowed_numbers", "notify_rules"],
+        "public_fields": ["phone_number_id", "notify_rules"],
+        "list_fields": ["allowed_numbers"],
         "webhook_path": "/api/webhooks/whatsapp",
         "hint": (
-            "Official Meta WhatsApp Cloud API. Paste phone number id + access token + "
-            "verify token + app secret. allowed_numbers = Brandon's E.164 (comma-separated). "
+            "Official Meta WhatsApp Cloud API. Save phone number id + access token + "
+            "verify token + app secret. Add Brandon's WhatsApp (+447710086970) on the "
+            "allowlist — empty list rejects everyone. "
             "notify_rules default: queue_empty,blocked,human (add digest to opt in)."
         ),
     },
@@ -301,6 +303,22 @@ def list_connections(email: str) -> dict[str, Any]:
         if webhook_path:
             item["webhook_url"] = f"https://{ui_auth.public_host()}{webhook_path}"
             item["webhook_path"] = webhook_path
+        list_fields = list(meta.get("list_fields") or [])
+        if list_fields:
+            item["list_fields"] = list_fields
+        if pid == "whatsapp":
+            raw_allow = get_secret(email, "whatsapp", "allowed_numbers") or _env_fallback(
+                "whatsapp", "allowed_numbers"
+            )
+            try:
+                from whatsapp.allowlist import EXAMPLE_E164
+                from whatsapp.config import parse_number_list
+
+                item["allowed_numbers"] = parse_number_list(raw_allow)
+                item["allowed_numbers_example"] = EXAMPLE_E164
+            except Exception:  # noqa: BLE001
+                item["allowed_numbers"] = []
+                item["allowed_numbers_example"] = "+447710086970"
         out[pid] = item
     return {
         "ok": True,

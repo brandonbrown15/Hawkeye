@@ -1031,6 +1031,102 @@
     if (gh) gh.placeholder = auto.github_token_ready ? "(saved in .env — enter to replace)" : "ghp_… or github_pat_…";
   }
 
+  function formatE164Display(raw) {
+    const digits = String(raw || "").replace(/\D/g, "");
+    return digits ? `+${digits}` : "";
+  }
+
+  function renderWhatsAppAllowlist(providerId, numbers, example) {
+    const wrap = document.createElement("div");
+    wrap.className = "conn-allowlist";
+    wrap.dataset.allowlist = providerId;
+    const heading = document.createElement("label");
+    heading.textContent = "Allowlisted numbers";
+    const note = document.createElement("p");
+    note.className = "section-note";
+    const list = Array.isArray(numbers) ? numbers : [];
+    note.textContent = list.length
+      ? "Only these WhatsApp numbers can chat or receive notifies."
+      : `No numbers yet — inbound WhatsApp is rejected. Example: ${example} (Brandon).`;
+    const ul = document.createElement("ul");
+    ul.className = "conn-allowlist-list";
+    for (const n of list) {
+      const li = document.createElement("li");
+      const span = document.createElement("span");
+      span.className = "conn-allowlist-num";
+      span.textContent = formatE164Display(n);
+      const rm = document.createElement("button");
+      rm.type = "button";
+      rm.className = "btn ghost compact";
+      rm.textContent = "Remove";
+      rm.addEventListener("click", async () => {
+        try {
+          await post(`/api/connections/${encodeURIComponent(providerId)}`, {
+            action: "allowlist_remove",
+            number: n,
+          });
+          toast(`Removed ${formatE164Display(n)}`);
+          loadAccountData().catch(() => {});
+        } catch (e) {
+          toast(String(e.message || e));
+        }
+      });
+      li.append(span, rm);
+      ul.appendChild(li);
+    }
+    const row = document.createElement("div");
+    row.className = "conn-allowlist-add";
+    const input = document.createElement("input");
+    input.type = "tel";
+    input.inputMode = "tel";
+    input.autocomplete = "tel";
+    input.placeholder = example || "+447710086970";
+    input.setAttribute("aria-label", "Add WhatsApp number");
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "btn primary compact";
+    addBtn.textContent = "Add";
+    const submitAdd = async (raw) => {
+      const val = String(raw || input.value || "").trim();
+      if (!val) {
+        toast("Enter an E.164 number");
+        return;
+      }
+      try {
+        await post(`/api/connections/${encodeURIComponent(providerId)}`, {
+          action: "allowlist_add",
+          number: val,
+        });
+        input.value = "";
+        toast(`Allowlisted ${formatE164Display(val)}`);
+        loadAccountData().catch(() => {});
+      } catch (e) {
+        toast(String(e.message || e));
+      }
+    };
+    addBtn.addEventListener("click", () => submitAdd());
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        submitAdd();
+      }
+    });
+    row.append(input, addBtn);
+    const exampleDigits = String(example || "").replace(/\D/g, "");
+    const haveExample = list.some((n) => String(n).replace(/\D/g, "") === exampleDigits);
+    if (exampleDigits && !haveExample) {
+      const seed = document.createElement("button");
+      seed.type = "button";
+      seed.className = "btn ghost compact";
+      seed.dataset.allowlistExample = exampleDigits;
+      seed.textContent = `Add ${example}`;
+      seed.addEventListener("click", () => submitAdd(example));
+      row.append(seed);
+    }
+    wrap.append(heading, note, ul, row);
+    return wrap;
+  }
+
   function renderConnections(data) {
     const note = document.getElementById("connEncryptNote");
     if (note) {
@@ -1100,7 +1196,9 @@
       fields.className = "conn-fields";
       const savedFields = p.saved_fields || [];
       const unreadFields = p.unreadable_fields || [];
+      const listFields = p.list_fields || [];
       for (const field of p.fields || []) {
+        if (listFields.includes(field)) continue;
         const label = document.createElement("label");
         label.textContent = field;
         const input = document.createElement("input");
@@ -1160,6 +1258,11 @@
       actions.append(save, disc);
       card.append(head, hint);
       if (webhookWrap) card.append(webhookWrap);
+      if (listFields.includes("allowed_numbers")) {
+        card.append(
+          renderWhatsAppAllowlist(id, p.allowed_numbers || [], p.allowed_numbers_example || "+447710086970")
+        );
+      }
       card.append(fields, actions);
       list.appendChild(card);
     }

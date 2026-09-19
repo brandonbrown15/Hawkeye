@@ -8,6 +8,9 @@ from pathlib import Path
 from typing import Any
 
 WEBHOOK_PATH = "/api/webhooks/whatsapp"
+# Documented example (Brandon). Never auto-insert — empty allowlist rejects all.
+EXAMPLE_NUMBER = "447710086970"
+EXAMPLE_E164 = "+447710086970"
 DEFAULT_NOTIFY_RULES = ("queue_empty", "blocked", "human")
 OPTIONAL_NOTIFY_RULES = ("digest",)
 ALL_NOTIFY_RULES = DEFAULT_NOTIFY_RULES + OPTIONAL_NOTIFY_RULES

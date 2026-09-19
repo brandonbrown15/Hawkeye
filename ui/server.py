@@ -1751,6 +1751,16 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 if action in ("disconnect", "delete", "revoke"):
                     out = connections.disconnect(user, provider)
+                elif action in ("allowlist_add", "allowlist_remove"):
+                    if provider != "whatsapp":
+                        raise ValueError("number allowlist is WhatsApp only")
+                    from whatsapp import allowlist
+
+                    number = str(data.get("number") or "")
+                    if action == "allowlist_add":
+                        out = allowlist.add_number(user, number)
+                    else:
+                        out = allowlist.remove_number(user, number)
                 else:
                     secrets_in = data.get("secrets") if isinstance(data.get("secrets"), dict) else {}
                     # Also accept flat field names on the body.

@@ -43,7 +43,7 @@ Stored in `$AUTOCODE_DATA_ROOT/hawkeye/accounts/profiles.json` (or `state/hawkey
 | OpenRouter | API key |
 | Brave Search | API key (else DuckDuckGo HTML) |
 | Telegram | Bot token + chat id |
-| WhatsApp | Phone number id, access token, verify token, app secret; allowlist + notify rules. Webhook URL is shown on the card — paste into Meta. [whatsapp.md](whatsapp.md) |
+| WhatsApp | Phone number id, access token, verify token, app secret; Add/Remove allowlist (example `+447710086970`) + notify rules. Webhook URL is shown on the card — paste into Meta. [whatsapp.md](whatsapp.md) |
 
 Encrypt at rest with `HAWKEYE_MEMORY_KEY` or dedicated `HAWKEYE_SECRETS_KEY` (set under **Account → Machine** first — saves are refused without it). The UI never displays raw secrets after save.
 

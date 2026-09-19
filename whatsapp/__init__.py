@@ -6,6 +6,7 @@ Secrets live in Account → Connections or machine .env — never in git.
 
 from __future__ import annotations
 
+from whatsapp.allowlist import add_number, remove_number
 from whatsapp.notify import notify_operator, rule_enabled
 from whatsapp.parse import InboundMessage, parse_inbound
 from whatsapp.service import handle_inbound_payload
@@ -19,10 +20,12 @@ from whatsapp.webhook import (
 __all__ = [
     "InboundMessage",
     "WebhookError",
+    "add_number",
     "handle_inbound_payload",
     "handle_verify_request",
     "notify_operator",
     "parse_inbound",
+    "remove_number",
     "rule_enabled",
     "verify_signature",
     "verify_subscription",
