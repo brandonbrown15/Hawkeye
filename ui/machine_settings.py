@@ -36,8 +36,12 @@ PUBLIC_KEYS = frozenset(
         "HAWKEYE_UPDATE_BRANCH",
         "HAWKEYE_UPDATE_REMOTE",
         "AUTOCODE_PUBLIC_HOST",
+        "NOTION_HUB_PAGE",
+        "NOTION_BUILD_QUEUE_DB",
     }
 )
+
+_NOTION_ID_RE = re.compile(r"^[0-9a-fA-F-]{32,36}$")
 
 
 def admin_emails() -> set[str]:
@@ -117,6 +121,154 @@ def _systemctl_user(*args: str) -> tuple[bool, str]:
         return False, str(e)
 
 
+def _normalize_notion_id(raw: str) -> str:
+    """Accept URL or bare UUID; return hyphenless/hyphenated id as pasted (trimmed)."""
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    # Notion URLs end with 32 hex chars (optionally hyphenated UUID).
+    m = re.search(r"([0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})", s)
+    if m:
+        return m.group(1)
+    if _NOTION_ID_RE.match(s):
+        return s
+    raise ValueError("Notion id must be a page/database UUID (or Notion URL containing one)")
+
+
+def sync_github_token_from_connections(email: str | None = None) -> bool:
+    """Copy Connections GitHub PAT into process + .env so self-update / timer can fetch.
+
+    Vault-only tokens never reach hawkeye-update.service (EnvironmentFile=.env).
+    Returns True when a token is available in the environment afterward.
+    """
+    from ui import connections
+
+    token = connections.resolve_secret("github", "token", email=email).strip()
+    if not token:
+        token = (os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or "").strip()
+        if not token:
+            token = (_read_env_file().get("GITHUB_TOKEN") or _read_env_file().get("GH_TOKEN") or "").strip()
+    if not token:
+        return False
+    env = _read_env_file()
+    existing = (os.environ.get("GITHUB_TOKEN") or env.get("GITHUB_TOKEN") or "").strip()
+    if existing != token:
+        _write_env_updates({"GITHUB_TOKEN": token})
+    else:
+        os.environ["GITHUB_TOKEN"] = token
+    return True
+
+
+def _self_update_env(email: str | None = None) -> dict[str, str]:
+    """Env for hawkeye_self_update.sh with GITHUB_TOKEN injected when available."""
+    sync_github_token_from_connections(email)
+    env = dict(os.environ)
+    token = (env.get("GITHUB_TOKEN") or env.get("GH_TOKEN") or "").strip()
+    if token:
+        env["GITHUB_TOKEN"] = token
+        env["GH_TOKEN"] = token
+    return env
+
+
+def repair_git_https_fetch(email: str | None = None) -> dict[str, Any]:
+    """Rewrite origin to HTTPS + PAT auth so fetch works without SSH keys.
+
+    Safe to call repeatedly. Used by Force update before hawkeye_self_update.sh
+    so Jetsons stuck on SSH-only remotes can unlock over the Cloudflare tunnel UI.
+    """
+    sync_github_token_from_connections(email)
+    token = (os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or "").strip()
+    if not token:
+        token = (_read_env_file().get("GITHUB_TOKEN") or _read_env_file().get("GH_TOKEN") or "").strip()
+    if not token:
+        return {"ok": False, "error": "no GITHUB_TOKEN — save Account → Connections → GitHub first"}
+
+    remote = os.environ.get("HAWKEYE_UPDATE_REMOTE", "origin").strip() or "origin"
+    steps: list[str] = []
+    try:
+        url_proc = subprocess.run(
+            ["git", "remote", "get-url", remote],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        url = (url_proc.stdout or "").strip()
+        repo = "brandonbrown15/Hawkeye"
+        m = re.search(r"github\.com[:/]+([^/]+)/([^/.]+)(?:\.git)?", url)
+        if m:
+            repo = f"{m.group(1)}/{m.group(2)}"
+        https = f"https://github.com/{repo}.git"
+        set_url = subprocess.run(
+            ["git", "remote", "set-url", remote, https],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if set_url.returncode != 0:
+            return {
+                "ok": False,
+                "error": (set_url.stderr or set_url.stdout or "git remote set-url failed").strip()[:300],
+                "steps": steps,
+            }
+        steps.append(f"remote={https}")
+
+        import base64
+
+        basic = base64.b64encode(f"x-access-token:{token}".encode()).decode().strip()
+        hdr = subprocess.run(
+            ["git", "config", "--local", "http.https://github.com/.extraheader", f"AUTHORIZATION: basic {basic}"],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if hdr.returncode != 0:
+            return {
+                "ok": False,
+                "error": (hdr.stderr or "git config extraheader failed").strip()[:300],
+                "steps": steps,
+            }
+        steps.append("extraheader=ok")
+
+        branch = os.environ.get("HAWKEYE_UPDATE_BRANCH", "main").strip() or "main"
+        fetch = subprocess.run(
+            ["git", "fetch", "--quiet", remote, branch],
+            cwd=str(ROOT),
+            env=_self_update_env(email),
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        if fetch.returncode != 0:
+            err = (fetch.stderr or fetch.stdout or "git fetch failed").strip()[:400]
+            return {"ok": False, "error": err, "steps": steps}
+        steps.append(f"fetch={remote}/{branch}")
+        return {"ok": True, "repo": repo, "steps": steps}
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return {"ok": False, "error": str(e), "steps": steps}
+
+
+def _run_self_update(*args: str, email: str | None = None, timeout: int = 600) -> subprocess.CompletedProcess[str]:
+    script = ROOT / "scripts" / "hawkeye_self_update.sh"
+    if not script.is_file():
+        raise FileNotFoundError("hawkeye_self_update.sh missing — pull auto-update scripts first")
+    return subprocess.run(
+        ["bash", str(script), *args],
+        cwd=str(ROOT),
+        env=_self_update_env(email),
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+        check=False,
+    )
+
+
 def _ollama_reachable() -> bool:
     host = os.environ.get("OLLAMA_HOST", "127.0.0.1:11434").strip() or "127.0.0.1:11434"
     try:
@@ -157,28 +309,25 @@ def ensure_ollama(*, restart: bool = False, timeout_sec: int = 120) -> dict[str,
         return {"ok": False, "error": str(e), "reachable": _ollama_reachable()}
 
 
-def update_status() -> dict[str, Any]:
+def update_status(email: str | None = None) -> dict[str, Any]:
     ok_check, check_out = False, ""
     script = ROOT / "scripts" / "hawkeye_self_update.sh"
     if script.is_file():
         try:
-            proc = subprocess.run(
-                ["bash", str(script), "--check"],
-                capture_output=True,
-                text=True,
-                timeout=60,
-                cwd=str(ROOT),
-                check=False,
-            )
+            proc = _run_self_update("--check", email=email, timeout=60)
             ok_check = proc.returncode == 0
             check_out = (proc.stdout or proc.stderr or "").strip()
-        except (OSError, subprocess.TimeoutExpired) as e:
+        except (OSError, subprocess.TimeoutExpired, FileNotFoundError) as e:
             check_out = str(e)
     timer_ok, timer_out = _systemctl_user("is-active", "hawkeye-update.timer")
     ui_ok, _ = _systemctl_user("is-active", "hawkeye-ui.service")
     tunnel_ok, _ = _systemctl_user("is-active", "hawkeye-tunnel.service")
     branch = os.environ.get("HAWKEYE_UPDATE_BRANCH", "").strip() or "main"
     ollama_ok = _ollama_reachable()
+    github_token_ready = bool(
+        (os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or "").strip()
+        or (_read_env_file().get("GITHUB_TOKEN") or _read_env_file().get("GH_TOKEN") or "").strip()
+    )
     return {
         "update_enabled": os.environ.get("HAWKEYE_UPDATE_ENABLED", "1").strip() != "0",
         "update_branch": branch,
@@ -191,6 +340,7 @@ def update_status() -> dict[str, Any]:
         "tunnel_active": tunnel_ok,
         "ollama_active": ollama_ok,
         "script_present": script.is_file(),
+        "github_token_ready": github_token_ready,
     }
 
 
@@ -199,6 +349,8 @@ def status(email: str | None = None) -> dict[str, Any]:
     tunnel = bool(os.environ.get("TUNNEL_TOKEN", "").strip() or env.get("TUNNEL_TOKEN"))
     mem = bool(os.environ.get("HAWKEYE_MEMORY_KEY", "").strip() or env.get("HAWKEYE_MEMORY_KEY"))
     secrets = bool(os.environ.get("HAWKEYE_SECRETS_KEY", "").strip() or env.get("HAWKEYE_SECRETS_KEY"))
+    hub = (os.environ.get("NOTION_HUB_PAGE") or env.get("NOTION_HUB_PAGE") or "").strip()
+    bq = (os.environ.get("NOTION_BUILD_QUEUE_DB") or env.get("NOTION_BUILD_QUEUE_DB") or "").strip()
     return {
         "ok": True,
         "admin": is_admin(email),
@@ -207,12 +359,17 @@ def status(email: str | None = None) -> dict[str, Any]:
         "memory_key_set": mem,
         "secrets_key_set": secrets or mem,
         "encryption_ready": mem or secrets,
-        "autostart": update_status(),
+        "notion_hub_page": hub,
+        "notion_hub_page_set": bool(hub),
+        "notion_build_queue_db": bq,
+        "notion_build_queue_set": bool(bq),
+        "autostart": update_status(email),
         "hint": (
-            "Add Cloudflare Tunnel install token, encryption key, and auto-update "
-            "branch here. Force update will not pull a dirty tree — use Discard "
-            "local changes to reset to origin/main (.env stays). "
-            "Use Wake Ollama if chat says connection refused. "
+            "Add Cloudflare Tunnel install token, encryption key, Notion hub page id, "
+            "and auto-update branch here. Use Wake Ollama if chat says connection refused. "
+            "Force update injects Connections → GitHub token for HTTPS fetch. "
+            "Force update will not pull a dirty tree — use Discard local changes "
+            "to reset to origin/main (.env stays). "
             "Per-user API keys live under Connections."
         ),
     }
@@ -262,8 +419,29 @@ def apply(email: str, updates: dict[str, Any]) -> dict[str, Any]:
     if "public_host" in updates and updates["public_host"] is not None:
         host = str(updates["public_host"]).strip()
         if host:
-            env_updates["AUTOCODE_PUBLIC_HOST"] = host
-            actions.append("public_host")
+            # Keep hostname single-line (reject shell/env injection leftovers).
+            host = host.split("\n", 1)[0].split(";", 1)[0].strip()
+            if host:
+                env_updates["AUTOCODE_PUBLIC_HOST"] = host
+                actions.append("public_host")
+
+    if "github_token" in updates and updates["github_token"] is not None:
+        tok = str(updates["github_token"]).strip()
+        if tok:
+            env_updates["GITHUB_TOKEN"] = tok
+            actions.append("github_token")
+
+    if "notion_hub_page" in updates and updates["notion_hub_page"] is not None:
+        hub = str(updates["notion_hub_page"]).strip()
+        if hub:
+            env_updates["NOTION_HUB_PAGE"] = _normalize_notion_id(hub)
+            actions.append("notion_hub_page")
+
+    if "notion_build_queue_db" in updates and updates["notion_build_queue_db"] is not None:
+        bq = str(updates["notion_build_queue_db"]).strip()
+        if bq:
+            env_updates["NOTION_BUILD_QUEUE_DB"] = _normalize_notion_id(bq)
+            actions.append("notion_build_queue_db")
 
     if env_updates:
         _write_env_updates(env_updates)
@@ -288,25 +466,64 @@ def apply(email: str, updates: dict[str, Any]) -> dict[str, Any]:
         ok, detail = _systemctl_user("restart", "hawkeye-tunnel.service")
         actions.append("tunnel_restart_ok" if ok else f"tunnel_restart_fail:{detail[:120]}")
 
+    # Keep .env GITHUB_TOKEN aligned with Connections so the 5-min timer can HTTPS-fetch.
+    if sync_github_token_from_connections(email):
+        actions.append("github_token_synced")
+
+    provision_notion = str(updates.get("provision_notion") or "").lower() in ("1", "true", "yes")
+    provision_log = ""
+    if provision_notion:
+        from ui import connections
+
+        hub = (os.environ.get("NOTION_HUB_PAGE") or _read_env_file().get("NOTION_HUB_PAGE") or "").strip()
+        if not hub:
+            raise ValueError("Set Notion hub page id first (Account → Machine)")
+        token = connections.resolve_secret("notion", "token", email=email).strip()
+        if not token:
+            raise ValueError("Connect Notion under Account → Connections first")
+        script = ROOT / "notion" / "client.py"
+        if not script.is_file():
+            raise ValueError("notion/client.py missing")
+        env = dict(os.environ)
+        env["NOTION_TOKEN"] = token
+        env["NOTION_HUB_PAGE"] = hub
+        try:
+            proc = subprocess.run(
+                ["python3", str(script), "provision", "--seed", "--parent", hub],
+                cwd=str(ROOT),
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=180,
+                check=False,
+            )
+            provision_log = ((proc.stdout or "") + (proc.stderr or "")).strip()[-4000:]
+            actions.append(
+                "provision_notion_ok" if proc.returncode == 0 else f"provision_notion_fail:{proc.returncode}"
+            )
+            if proc.returncode != 0:
+                raise ValueError(f"Notion provision failed: {provision_log[-500:] or proc.returncode}")
+        except (OSError, subprocess.TimeoutExpired) as e:
+            raise ValueError(f"Notion provision failed: {e}") from e
+
     force_update = str(updates.get("force_update") or "").lower() in ("1", "true", "yes")
     reset_to_remote = str(
         updates.get("reset_to_remote") or updates.get("discard_local") or ""
     ).lower() in ("1", "true", "yes")
+    repair_git = str(updates.get("repair_git") or "").lower() in ("1", "true", "yes")
     update_log = ""
+    repair_result: dict[str, Any] | None = None
+    if force_update or reset_to_remote or repair_git:
+        repair_result = repair_git_https_fetch(email)
+        actions.append(
+            "repair_git_ok" if repair_result.get("ok") else f"repair_git_fail:{repair_result.get('error', '')[:80]}"
+        )
+        if repair_git and not force_update and not reset_to_remote and not repair_result.get("ok"):
+            raise ValueError(f"git repair failed: {repair_result.get('error')}")
     if force_update or reset_to_remote:
-        script = ROOT / "scripts" / "hawkeye_self_update.sh"
-        if not script.is_file():
-            raise ValueError("hawkeye_self_update.sh missing — pull auto-update scripts first")
         flag = "--reset" if reset_to_remote else "--force"
         try:
-            proc = subprocess.run(
-                ["bash", str(script), flag],
-                cwd=str(ROOT),
-                capture_output=True,
-                text=True,
-                timeout=600,
-                check=False,
-            )
+            proc = _run_self_update(flag, email=email, timeout=600)
             update_log = ((proc.stdout or "") + (proc.stderr or "")).strip()
             actions.append(
                 f"{'reset_to_remote' if reset_to_remote else 'force_update'}"
@@ -314,8 +531,10 @@ def apply(email: str, updates: dict[str, Any]) -> dict[str, Any]:
             )
             if proc.returncode != 0:
                 raise ValueError(
-                    f"{flag} failed ({proc.returncode}): {update_log[-1200:] or 'no script output'}"
+                    f"{flag} failed ({proc.returncode}): {update_log[-1200:] or 'see logs/self-update.log'}"
                 )
+        except FileNotFoundError as e:
+            raise ValueError(str(e)) from e
         except ValueError:
             raise
         except (OSError, subprocess.TimeoutExpired) as e:
@@ -337,4 +556,9 @@ def apply(email: str, updates: dict[str, Any]) -> dict[str, Any]:
         out["ollama"] = ollama_result
     if update_log:
         out["update_log"] = update_log
+        out["force_update_log"] = update_log
+    if repair_result is not None:
+        out["repair_git"] = repair_result
+    if provision_log:
+        out["provision_notion_log"] = provision_log
     return out

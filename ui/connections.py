@@ -73,7 +73,7 @@ PROVIDER_META = {
     "github": {
         "label": "GitHub",
         "fields": ["token"],
-        "hint": "Fine-grained or classic PAT with repo access",
+        "hint": "Fine-grained or classic PAT with repo access — also powers Jetson auto-update HTTPS fetch",
     },
     "cursor": {
         "label": "Cursor",
@@ -295,6 +295,14 @@ def set_connection(
         providers[provider] = row
         data["providers"] = providers
         _save(email, data)
+    # Machine auto-update timer only sees .env — mirror GitHub PAT for HTTPS fetch.
+    if provider == "github" and secrets.get("token"):
+        try:
+            from ui import machine_settings
+
+            machine_settings.sync_github_token_from_connections(email)
+        except Exception:  # noqa: BLE001
+            pass
     return list_connections(email)
 
 

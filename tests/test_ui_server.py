@@ -167,6 +167,12 @@ class UiHelpersTests(unittest.TestCase):
         ids = {c["id"] for c in data["checks"]}
         self.assertIn("hermes", ids)
         self.assertIn("notion", ids)
+        hermes = next(c for c in data["checks"] if c["id"] == "hermes")
+        self.assertTrue(hermes.get("optional"))
+        ollama = next(c for c in data["checks"] if c["id"] == "ollama")
+        self.assertIn("Wake Ollama", ollama["hint"])
+        hub = next(c for c in data["checks"] if c["id"] == "hub")
+        self.assertIn("Machine", hub["hint"])
 
     def test_http_status_and_control(self) -> None:
         ops.write_status(phase="idle", detail="test")

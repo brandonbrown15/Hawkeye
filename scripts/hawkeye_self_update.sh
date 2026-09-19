@@ -88,8 +88,38 @@ fi
 
 BEFORE="$(git rev-parse HEAD)"
 log "Fetch ${REMOTE}/${BRANCH} (at ${BEFORE:0:8})"
-if ! git fetch --quiet "$REMOTE" "$BRANCH"; then
-  log "ERROR: git fetch failed (check SSH key / gh auth / network)"
+
+ensure_https_remote_with_token() {
+  # Prefer PAT over broken SSH when GITHUB_TOKEN / GH_TOKEN is set.
+  local token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+  token="$(printf '%s' "$token" | tr -d '\r\n')"
+  [[ -n "$token" ]] || return 1
+  local url
+  url="$(git remote get-url "$REMOTE" 2>/dev/null || true)"
+  local repo="brandonbrown15/Hawkeye"
+  if [[ "$url" =~ github.com[:/]+([^/]+)/([^/.]+)(\.git)?$ ]]; then
+    repo="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+  elif [[ "$url" =~ github.com/([^/]+)/([^/.]+) ]]; then
+    repo="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+  fi
+  # Durable HTTPS remote; auth via local extraheader (token not stored in remote URL).
+  git remote set-url "$REMOTE" "https://github.com/${repo}.git" 2>/dev/null || true
+  git config --local "http.https://github.com/.extraheader" "AUTHORIZATION: basic $(printf 'x-access-token:%s' "$token" | base64 | tr -d '\n')"
+  log "Configured HTTPS fetch for github.com/${repo} via GITHUB_TOKEN"
+  return 0
+}
+
+fetch_ok=0
+if git fetch --quiet "$REMOTE" "$BRANCH"; then
+  fetch_ok=1
+else
+  log "WARN: git fetch failed — retrying with GITHUB_TOKEN / HTTPS if available"
+  if ensure_https_remote_with_token && git fetch --quiet "$REMOTE" "$BRANCH"; then
+    fetch_ok=1
+  fi
+fi
+if [[ "$fetch_ok" -ne 1 ]]; then
+  log "ERROR: git fetch failed (check SSH key / GITHUB_TOKEN in .env or Connections / network)"
   exit 1
 fi
 

@@ -35,6 +35,12 @@ class HawkeyeSelfUpdateTests(unittest.TestCase):
         self.assertIn("HAWKEYE_UPDATE", out.stdout)
         self.assertIn("--reset", out.stdout)
 
+    def test_script_retries_https_with_token(self) -> None:
+        text = (ROOT / "scripts" / "hawkeye_self_update.sh").read_text()
+        self.assertIn("ensure_https_remote_with_token", text)
+        self.assertIn("GITHUB_TOKEN", text)
+        self.assertIn("extraheader", text)
+
     def test_installer_mentions_update_timer(self) -> None:
         text = (ROOT / "scripts" / "install_hawkeye_autostart.sh").read_text()
         self.assertIn("hawkeye-update.timer", text)
