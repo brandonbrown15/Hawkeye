@@ -73,6 +73,8 @@ python3 scripts/set_work_user.py --email mark@brownhawke.engineering
 
 Tell Mark the password **out of band** (in person / existing DM). Then he signs in at `https://hawkeye.brownhawke.engineering/login`.
 
+The **public login page and unauthenticated API hints** must not show Jetson commands, `systemctl`, or filesystem paths. Teammates are pointed at `enquire@brownhawke.engineering` or Brandon. Keep this runbook for operators only.
+
 First-time profile fields (name, employee #) are optional on that form; he can also set them under **Account → Profile**.
 
 ## Cookie / tunnel notes

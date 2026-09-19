@@ -16,17 +16,19 @@
     <form class="login-card" id="loginForm" novalidate>
       <img class="login-logo" src="/brand/brownhawke-logo.jpg" alt="BrownHawke Engineering" width="72" height="69" />
       <h1>{{PRODUCT}}</h1>
-      <p class="login-lede">BrownHawke work platform. Sign in with your <code>@{{EMAIL_DOMAIN}}</code> email. This is the <strong>Hawkeye account</strong> password — not GitHub, not Outlook, and not a Cloudflare Zero Trust PIN.</p>
+      <p class="login-lede">Sign in with your BrownHawke work email.</p>
+      <p class="login-sub">Hawkeye password — not GitHub or Outlook.</p>
       <div class="login-banner" id="gateBanner" role="status"></div>
       <label for="user">Work email</label>
-      <input id="user" name="email" type="text" inputmode="email" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="you@{{EMAIL_DOMAIN}}" required />
+      <input id="user" name="email" type="text" inputmode="email" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="you@{{EMAIL_DOMAIN}}" required aria-describedby="err" />
       <label for="pass">Password</label>
       <div class="pw-row">
-        <input id="pass" name="password" type="password" autocomplete="current-password" required />
+        <input id="pass" name="password" type="password" autocomplete="current-password" required aria-describedby="err" />
         <button class="pw-toggle" type="button" id="pwToggle" aria-pressed="false" aria-controls="pass">Show</button>
       </div>
       <details class="login-profile">
-        <summary>First-time profile (name + employee #)</summary>
+        <summary>First-time profile</summary>
+        <p class="login-sub">Name and employee number — optional here, required later.</p>
         <label for="firstName">First name</label>
         <input id="firstName" name="first_name" autocomplete="given-name" />
         <label for="lastName">Last name</label>
@@ -38,14 +40,8 @@
       <p class="login-err" id="err" role="alert"></p>
       <p class="login-hint" id="hint"></p>
       <details class="login-help" id="forgotHelp">
-        <summary>Forgot password / new teammate</summary>
-        <p>There is no self-serve reset. An admin on the Jetson sets the password (prompted locally — never commit it):</p>
-        <ol>
-          <li><code>cd ~/Hawkeye</code></li>
-          <li><code>./scripts/hawkeye accounts set-password --email you@{{EMAIL_DOMAIN}}</code></li>
-          <li>If the UI was already running, it reloads <code>users.json</code> on the next sign-in. Restart only if it still fails: <code>systemctl --user restart hawkeye-ui.service</code></li>
-        </ol>
-        <p>Canonical URL: <code>https://{{PUBLIC_HOST}}/login</code></p>
+        <summary>Forgot password or new teammate?</summary>
+        <p>There is no self-serve reset on this page. Email <a href="mailto:enquire@brownhawke.engineering">enquire@brownhawke.engineering</a> or Brandon at <a href="mailto:brandon@brownhawke.engineering">brandon@brownhawke.engineering</a>.</p>
       </details>
     </form>
   </div>
@@ -57,6 +53,13 @@
       let email = (raw || "").trim().toLowerCase();
       if (email && !email.includes("@")) email = `${email}@${DOMAIN}`;
       return email;
+    }
+
+    function setInvalid(id, on) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.classList.toggle("is-invalid", !!on);
+      el.setAttribute("aria-invalid", on ? "true" : "false");
     }
 
     function showError(message, hint, code) {
@@ -92,8 +95,8 @@
       if (r.status >= 502) {
         return {
           code: "tunnel_down",
-          error: "Hawkeye did not answer (tunnel or UI process down).",
-          hint: "On the Jetson: systemctl --user status hawkeye-ui.service hawkeye-tunnel.service",
+          error: "Hawkeye did not answer.",
+          hint: "Email enquire@brownhawke.engineering or Brandon — do not wait on this page.",
         };
       }
       if (looksHtml) {
@@ -145,11 +148,11 @@
         }
         if (data.private_mode && data.credentials_ready === false) {
           banner.classList.add("is-on");
-          banner.textContent = "This Jetson has no work users yet. An admin must run ./scripts/hawkeye accounts set-password on the box.";
+          banner.textContent = "Hawkeye has no work accounts yet. Email enquire@brownhawke.engineering or Brandon.";
         }
       } catch (e) {
         banner.classList.add("is-on");
-        banner.textContent = "Could not reach the Hawkeye API. If you were sent to a Cloudflare Access page, complete that first. Otherwise the tunnel/UI may be down.";
+        banner.textContent = "Could not reach Hawkeye. If you saw a Cloudflare Access page, finish that first, then retry. Otherwise email enquire@brownhawke.engineering or Brandon.";
       }
     })();
 
@@ -158,6 +161,8 @@
       const btn = document.getElementById("submitBtn");
       if (btn.disabled) return;
       showError("", "");
+      setInvalid("user", false);
+      setInvalid("pass", false);
       const email = normalizeEmail(document.getElementById("user").value);
       const password = document.getElementById("pass").value;
       const first_name = document.getElementById("firstName").value.trim();
@@ -165,11 +170,14 @@
       const employee_number = document.getElementById("empNo").value.trim();
       document.getElementById("user").value = email;
       if (!email || !password) {
+        setInvalid("user", !email);
+        setInvalid("pass", !password);
         showError(
-          "Email and password required (autofill sometimes leaves the password empty).",
-          "Tap Show to confirm the password field is actually filled.",
+          "Enter your work email and password.",
+          "Autofill sometimes leaves the password empty — tap Show to check, then try again.",
           "empty"
         );
+        (email ? document.getElementById("pass") : document.getElementById("user")).focus();
         return;
       }
       btn.disabled = true;
@@ -209,7 +217,7 @@
           "cookie_not_stored"
         );
       } catch (e) {
-        showError(String(e.message || e), "Network error — check the tunnel and that you are not blocked by Cloudflare Access.", "network");
+        showError(String(e.message || e), "Network error. Finish Cloudflare Access if you were sent there, or email enquire@brownhawke.engineering.", "network");
       } finally {
         btn.disabled = false;
         btn.textContent = "Sign in";

@@ -1358,10 +1358,12 @@ input:focus, select:focus, textarea:focus {
 
 .login-card {
   width: min(440px, 100%);
+  max-width: 100%;
   padding: 1.7rem 1.4rem 1.4rem;
   background: #151d2e;
   border: 1px solid rgba(158, 192, 232, 0.22);
   box-shadow: var(--shadow);
+  overflow-x: hidden;
 }
 
 .login-card h1 {
@@ -1370,9 +1372,17 @@ input:focus, select:focus, textarea:focus {
 }
 
 .login-lede {
-  margin: 0 0 1.1rem;
+  margin: 0 0 0.35rem;
+  color: var(--ink);
+  line-height: 1.45;
+  font-size: 1.02rem;
+}
+
+.login-sub {
+  margin: 0 0 1rem;
   color: var(--muted);
-  line-height: 1.5;
+  line-height: 1.45;
+  font-size: 0.9rem;
 }
 
 .login-card label {
@@ -1387,9 +1397,14 @@ input:focus, select:focus, textarea:focus {
 .login-card input[type="email"],
 .login-card input[type="password"] {
   width: 100%;
+  max-width: 100%;
   padding: 0.75rem 0.85rem;
   font-size: 16px;
   min-height: 44px;
+}
+
+.login-card input.is-invalid {
+  border-color: var(--fail);
 }
 
 .pw-row {
@@ -1467,12 +1482,16 @@ input:focus, select:focus, textarea:focus {
   color: var(--muted);
   font-size: 0.86rem;
   line-height: 1.45;
+  overflow-wrap: anywhere;
 }
-.login-help ol { margin: 0.4rem 0 0; padding-left: 1.2rem; }
-.login-help code {
-  font-size: 0.78rem;
-  word-break: break-word;
+.login-help a,
+.login-sub a {
   color: var(--navy);
+  font-weight: 600;
+}
+.login-profile,
+.login-help {
+  max-width: 100%;
 }
 
 .login-banner {

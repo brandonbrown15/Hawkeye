@@ -89,6 +89,17 @@ class LoginAuthUnitTests(unittest.TestCase):
         self.assertIsNone(ui_auth.diagnose_login("brandon@brownhawke.engineering", "secret-pass"))
         self.assertIsNone(ui_auth.diagnose_login("Brandon", "secret-pass"))
 
+    def test_public_hints_have_no_admin_commands(self) -> None:
+        hint = ui_auth.public_support_hint()
+        self.assertIn("enquire@brownhawke.engineering", hint)
+        self.assertNotIn("set-password", hint)
+        self.assertNotIn("systemctl", hint)
+        self.assertNotIn("~/", hint)
+        unknown = ui_auth.diagnose_login("mark@brownhawke.engineering", "x")
+        self.assertEqual(unknown.code, ui_auth.CODE_UNKNOWN_ACCOUNT)
+        self.assertNotIn("set-password", unknown.hint)
+        self.assertIn("enquire@brownhawke.engineering", unknown.hint)
+
     def test_reload_users_on_mtime(self) -> None:
         self.assertIsNone(ui_auth.login("mark@brownhawke.engineering", "hunter2xx"))
         data = json.loads(self.users.read_text(encoding="utf-8"))
@@ -210,12 +221,22 @@ class LoginHttpTests(unittest.TestCase):
             {"email": "mark@brownhawke.engineering", "password": "x"}
         )
         self.assertEqual(body["code"], "unknown_account")
-        self.assertIn("set-password", body.get("hint", ""))
+        hint = body.get("hint", "")
+        self.assertIn("enquire@brownhawke.engineering", hint)
+        self.assertNotIn("set-password", hint)
+        self.assertNotIn("systemctl", hint)
+        self.assertNotIn("Jetson", hint)
+
+        code, body, _ = self._post_login({"email": "", "password": ""})
+        self.assertEqual(code, 401)
+        self.assertEqual(body["code"], "empty")
 
         code, body, _ = self._post_login(
             {"email": "brandon@brownhawke.engineering", "password": "nope"}
         )
         self.assertEqual(body["code"], "wrong_password")
+        self.assertNotIn("set-password", body.get("hint", ""))
+        self.assertIn("enquire@brownhawke.engineering", body.get("hint", ""))
 
         code, body, cookie = self._post_login(
             {"email": "  Brandon@BrownHawke.engineering ", "password": "secret-pass"}
@@ -238,10 +259,22 @@ class LoginHttpTests(unittest.TestCase):
             html = resp.read().decode()
         self.assertIn("pwToggle", html)
         self.assertIn("forgotHelp", html)
-        self.assertIn("hawkeye accounts set-password", html)
+        self.assertIn("enquire@brownhawke.engineering", html)
         self.assertIn("novalidate", html)
         self.assertIn("credentials: \"same-origin\"", html)
         self.assertIn("brownhawke.engineering", html)
+        self.assertIn('id="submitBtn"', html)
+        self.assertIn("Enter your work email and password", html)
+        lowered = html.lower()
+        for leak in (
+            "set-password",
+            "systemctl",
+            "~/hawkeye",
+            "users.json",
+            "hawkeye-ui.service",
+            "cd ~",
+        ):
+            self.assertNotIn(leak, lowered)
         # Must classify JSON errors before scanning the body for "Cloudflare Access"
         # (our own hint text mentions Access and used to false-positive Gmail).
         json_first = html.find("data.ok === false")
