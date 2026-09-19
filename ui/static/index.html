@@ -5,6 +5,30 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#002d62" />
   <title>{{PRODUCT}} · BrownHawke Engineering</title>
+  <script>
+    (function () {
+      function apply(pref) {
+        var mode = pref === "light" || pref === "dark" ? pref : "system";
+        var dark = mode === "dark" || (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+        if (mode === "system") document.documentElement.removeAttribute("data-theme");
+        else document.documentElement.setAttribute("data-theme", mode);
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", dark ? "#0e1624" : "#002d62");
+      }
+      var stored = "system";
+      try { stored = localStorage.getItem("hawkeye-theme") || "system"; } catch (e) {}
+      apply(stored);
+      var mq = window.matchMedia("(prefers-color-scheme: dark)");
+      var onChange = function () {
+        var cur = "system";
+        try { cur = localStorage.getItem("hawkeye-theme") || "system"; } catch (e) {}
+        if (cur === "system") apply("system");
+      };
+      if (mq.addEventListener) mq.addEventListener("change", onChange);
+      else if (mq.addListener) mq.addListener(onChange);
+    })();
+  </script>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@400;700&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -77,6 +101,7 @@
           <option value="light">Light</option>
           <option value="dark">Dark</option>
         </select>
+        <p class="section-note">Match device follows this computer or phone. Light and Dark pin white paper or ink navy — same serif and navy fills either way.</p>
         <label for="profFirst">First name</label>
         <input id="profFirst" />
         <label for="profLast">Last name</label>

@@ -198,6 +198,7 @@
     const meta = document.querySelector('meta[name="theme-color"]');
     const dark = mode === "dark" || (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
     if (meta) meta.setAttribute("content", dark ? "#0e1624" : "#002d62");
+    document.documentElement.style.colorScheme = dark ? "dark" : "light";
     const sel = document.getElementById("themePref");
     if (sel && sel.value !== mode) sel.value = mode;
   }
@@ -211,6 +212,14 @@
   if (themePref) {
     themePref.addEventListener("change", () => applyTheme(themePref.value));
   }
+  const schemeMq = window.matchMedia("(prefers-color-scheme: dark)");
+  const onScheme = () => {
+    let stored = "system";
+    try { stored = localStorage.getItem("hawkeye-theme") || "system"; } catch (_) { /* ignore */ }
+    if (stored === "system") applyTheme("system");
+  };
+  if (schemeMq.addEventListener) schemeMq.addEventListener("change", onScheme);
+  else if (schemeMq.addListener) schemeMq.addListener(onScheme);
 
   function fmtHost(value, suffix) {
     if (value == null || Number.isNaN(value)) return "—";

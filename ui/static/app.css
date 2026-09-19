@@ -3,6 +3,9 @@
   --navy: #002d62;
   --navy-deep: #001a3a;
   --navy-fill: #002d62;
+  --navy-fill-hover: #001a3a;
+  --on-navy: #ffffff;
+  --track: #c5cdd8;
   --brand-navy: #002d62;
   --ink: #1a2433;
   --muted: #5a6b82;
@@ -41,6 +44,9 @@
     --navy: #9ec0e8;
     --navy-deep: #6ea0d4;
     --navy-fill: #002d62;
+    --navy-fill-hover: #001a3a;
+    --on-navy: #ffffff;
+    --track: #3a4a5e;
     --ink: #e8eef6;
     --muted: #9aabc0;
     --line: rgba(158, 192, 232, 0.18);
@@ -67,6 +73,9 @@ html[data-theme="light"] {
   --navy: #002d62;
   --navy-deep: #001a3a;
   --navy-fill: #002d62;
+  --navy-fill-hover: #001a3a;
+  --on-navy: #ffffff;
+  --track: #c5cdd8;
   --ink: #1a2433;
   --muted: #5a6b82;
   --line: rgba(0, 45, 98, 0.14);
@@ -92,6 +101,9 @@ html[data-theme="dark"] {
   --navy: #9ec0e8;
   --navy-deep: #6ea0d4;
   --navy-fill: #002d62;
+  --navy-fill-hover: #001a3a;
+  --on-navy: #ffffff;
+  --track: #3a4a5e;
   --ink: #e8eef6;
   --muted: #9aabc0;
   --line: rgba(158, 192, 232, 0.18);
@@ -138,8 +150,8 @@ body.app {
   top: -3rem;
   z-index: 80;
   padding: 0.45rem 0.75rem;
-  background: var(--navy);
-  color: #fff;
+  background: var(--navy-fill);
+  color: var(--on-navy);
   border-radius: var(--radius-sm);
   font-weight: 700;
 }
@@ -362,9 +374,9 @@ h2 { font-size: 1.05rem; }
 .btn.primary {
   background: var(--navy-fill);
   border-color: var(--navy-fill);
-  color: #fff;
+  color: var(--on-navy);
 }
-.btn.primary:hover { background: var(--navy-deep); color: #fff; }
+.btn.primary:hover { background: var(--navy-fill-hover); color: var(--on-navy); }
 
 .btn.danger {
   border-color: color-mix(in srgb, var(--fail) 55%, transparent);
@@ -553,7 +565,7 @@ input:focus, select:focus, textarea:focus {
   height: 1.2rem;
   flex-shrink: 0;
   border-radius: 999px;
-  background: #c5cdd8;
+  background: var(--track);
   transition: background 0.22s ease;
 }
 
@@ -570,7 +582,7 @@ input:focus, select:focus, textarea:focus {
   transition: transform 0.22s ease;
 }
 
-.local-only-switch input:checked + .switch-track { background: var(--navy); }
+.local-only-switch input:checked + .switch-track { background: var(--navy-fill); }
 .local-only-switch input:checked + .switch-track::after { transform: translateX(0.92rem); }
 
 .local-only-switch.is-on {
@@ -711,7 +723,7 @@ body[data-pane="inbox"] .workspace-secondary { display: block; }
 .view-tab.is-active,
 .account-tab.is-active {
   background: var(--navy-fill);
-  color: #fff;
+  color: var(--on-navy);
   border-color: var(--navy-fill);
 }
 
@@ -772,7 +784,7 @@ body[data-pane="inbox"] .workspace-secondary { display: block; }
   padding: 0.7rem 0.85rem;
   border: 1px solid color-mix(in srgb, var(--warn) 40%, transparent);
   background: color-mix(in srgb, var(--warn) 10%, var(--paper));
-  color: #6b5414;
+  color: var(--warn);
   font-size: 0.94rem;
   border-radius: var(--radius-sm);
 }
@@ -1102,7 +1114,7 @@ body[data-pane="inbox"] .workspace-secondary { display: block; }
   padding: 0.35rem 0.45rem;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  background: var(--paper);
+  background: var(--paper-soft);
   font-family: var(--font-mono);
   font-size: 0.68rem;
   letter-spacing: 0.02em;
@@ -1538,7 +1550,7 @@ body[data-pane="inbox"] .workspace-secondary { display: block; }
 .conn-status.on { color: var(--ok); }
 .conn-status.off { color: var(--muted); }
 .conn-status.machine { color: var(--warn); }
-.conn-status.unreadable { color: #b45a20; }
+.conn-status.unreadable { color: var(--warn); }
 .inline-check {
   display: flex;
   align-items: center;
@@ -1573,8 +1585,8 @@ body[data-pane="inbox"] .workspace-secondary { display: block; }
   margin-left: 0.2rem;
   min-width: 1.1rem;
   padding: 0 0.3rem;
-  background: var(--navy);
-  color: #fff;
+  background: var(--navy-fill);
+  color: var(--on-navy);
   font-size: 0.7rem;
   line-height: 1.15rem;
   text-align: center;
@@ -1644,7 +1656,11 @@ body[data-pane="inbox"] .workspace-secondary { display: block; }
 
 .login-card h1 {
   margin: 0.55rem 0 0.25rem;
+  font-family: var(--font-brand);
   font-size: 1.55rem;
+  font-weight: 700;
+  color: var(--navy);
+  letter-spacing: -0.01em;
 }
 
 .login-lede {
@@ -1850,7 +1866,7 @@ body[data-pane="inbox"] .workspace-secondary { display: block; }
   .pane-btn.is-active {
     background: var(--navy-fill);
     border-color: var(--navy-fill);
-    color: #fff;
+    color: var(--on-navy);
   }
 
   .foot { display: none; }
