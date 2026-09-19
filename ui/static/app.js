@@ -31,6 +31,18 @@
     title.textContent = bits[0];
     copy.textContent = bits[1];
     wrap.append(title, copy);
+    if (["Ready", "Running", "Backlog"].includes(status)) {
+      const ask = document.createElement("button");
+      ask.type = "button";
+      ask.className = "chip-btn";
+      ask.textContent = "Ask Hawkeye";
+      ask.addEventListener("click", () => {
+        setPane("chat");
+        const input = document.getElementById("chatInput");
+        if (input) input.focus();
+      });
+      wrap.appendChild(ask);
+    }
     return wrap;
   }
 
@@ -50,24 +62,40 @@
     return r.json();
   }
 
-  async function post(path, body) {
-    const r = await fetch(path, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "X-Autocode-Token": token,
-      },
-      body: JSON.stringify({ ...body, token }),
-    });
-    if (r.status === 401) {
-      location.href = "/login";
-      throw new Error("login required");
+  async function post(path, body, opts) {
+    const timeoutMs = opts && opts.timeoutMs;
+    const ctrl = timeoutMs ? new AbortController() : null;
+    let timer = null;
+    if (ctrl && timeoutMs) {
+      timer = setTimeout(() => ctrl.abort(), timeoutMs);
     }
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok || data.ok === false) throw new Error(data.error || `${path} → ${r.status}`);
-    return data;
+    try {
+      const r = await fetch(path, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "X-Autocode-Token": token,
+        },
+        body: JSON.stringify({ ...body, token }),
+        signal: ctrl ? ctrl.signal : undefined,
+      });
+      if (r.status === 401) {
+        location.href = "/login";
+        throw new Error("login required");
+      }
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || data.ok === false) throw new Error(data.error || `${path} → ${r.status}`);
+      return data;
+    } catch (e) {
+      if (e && e.name === "AbortError") {
+        throw new Error("Hawkeye did not reply in time. Check Account → Machine → Wake Ollama, then send again.");
+      }
+      throw e;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   function ageLabel(sec) {
@@ -256,8 +284,18 @@
 
     const pills = document.getElementById("countPills");
     pills.innerHTML = "";
+    const pillOrder = columnOrder(board.kind, counts);
+    const seen = new Set();
+    for (const status of pillOrder) {
+      seen.add(status);
+      const n = counts[status] || 0;
+      const span = document.createElement("span");
+      span.className = "count-pill" + (n ? "" : " is-empty");
+      span.textContent = `${status} ${n}`;
+      pills.appendChild(span);
+    }
     for (const [status, n] of Object.entries(counts)) {
-      if (!n) continue;
+      if (seen.has(status) || !n) continue;
       const span = document.createElement("span");
       span.className = "count-pill";
       span.textContent = `${status} ${n}`;
@@ -310,6 +348,7 @@
         col.appendChild(card);
       }
       if (!colTasks.length) {
+        col.classList.add("is-empty");
         col.appendChild(emptyColumn(status));
       }
       kanban.appendChild(col);
@@ -545,6 +584,14 @@
   document.getElementById("refreshBoard").addEventListener("click", () => {
     loadBoard().then(() => toast("Board refreshed")).catch((e) => toast(String(e.message || e)));
   });
+  const askHawkeye = document.getElementById("askHawkeye");
+  if (askHawkeye) {
+    askHawkeye.addEventListener("click", () => {
+      setPane("chat");
+      const input = document.getElementById("chatInput");
+      if (input) input.focus();
+    });
+  }
   document.getElementById("drawerClose").addEventListener("click", closeDrawer);
   document.getElementById("taskDrawer").addEventListener("click", (ev) => {
     if (ev.target.id === "taskDrawer") closeDrawer();
@@ -654,10 +701,12 @@
 
   function appendChat(role, text, meta) {
     const log = document.getElementById("chatLog");
-    if (!log) return;
+    if (!log) return null;
     hideChatEmpty();
     const row = document.createElement("article");
     row.className = `chat-msg ${role}`;
+    if (meta && meta.pending) row.classList.add("pending");
+    if (meta && meta.error) row.classList.add("is-error");
     const who = role === "you" ? "You" : role === "local" ? "Hawkeye" : role === "cloud" ? "Cloud" : "System";
     const head = document.createElement("div");
     head.className = "chat-msg-head";
@@ -677,12 +726,24 @@
     row.append(head, body);
     log.appendChild(row);
     log.scrollTop = log.scrollHeight;
+    if (meta && meta.pending) return row;
     if (role === "you") {
       chatHistory.push({ role: "user", content: text });
     } else if (role === "local" || role === "cloud") {
       chatHistory.push({ role: "assistant", content: text });
     }
     if (chatHistory.length > 24) chatHistory = chatHistory.slice(-24);
+    return row;
+  }
+
+  function removePendingChat() {
+    document.querySelectorAll(".chat-msg.pending").forEach((el) => el.remove());
+  }
+
+  function resetChatSend(sendBtn) {
+    if (!sendBtn) return;
+    sendBtn.disabled = false;
+    sendBtn.textContent = "Send";
   }
 
   const chatForm = document.getElementById("chatForm");
@@ -718,40 +779,57 @@
       const prior = chatHistory.slice();
       appendChat("you", msg);
       input.value = "";
+      appendChat("system", "Hawkeye is thinking…", { label: "Pending", pending: true });
       setChatStatus("Thinking…", "pending");
+      const waitHint = setTimeout(() => {
+        setChatStatus("Still waiting on Jetson…", "pending");
+      }, 8000);
       try {
         const data = await post("/api/chat", {
           message: msg,
           seed_notion: !!(seed && seed.checked),
           history: prior,
-        });
-        if (data.local_reply) {
+        }, { timeoutMs: 25000 });
+        removePendingChat();
+        const localFailed = !!(data.local_error);
+        const providerKey = String(data.provider || "").toLowerCase();
+        const cloudFailed = !!(data.cloud_error) || providerKey === "error" || providerKey === "none";
+        if (localFailed) {
+          appendChat("system", data.local_error, { label: "Ollama", error: true });
+        } else if (data.local_reply) {
           appendChat("local", data.local_reply, { label: "Jetson" });
         }
-        if (data.escalated && data.cloud_reply) {
-          const provider = friendlyProvider(data.provider, true);
-          appendChat("cloud", data.cloud_reply, { provider, label: provider });
+        if (data.escalated && (data.cloud_reply || data.cloud_error)) {
+          if (cloudFailed) {
+            appendChat("system", data.cloud_error || data.cloud_reply, { label: "Cloud", error: true });
+          } else {
+            const provider = friendlyProvider(data.provider, true);
+            appendChat("cloud", data.cloud_reply, { provider, label: provider });
+          }
         }
         if (data.seeded_task) {
           appendChat("system", `Added to the Notion board: ${data.seeded_task}`, { label: "Board" });
           loadBoard().catch(() => {});
         }
-        if (data.escalated) {
+        if (localFailed && !data.escalated) {
+          setChatStatus("Ollama unavailable", "error");
+          toast(data.local_error);
+        } else if (data.escalated) {
           const provider = friendlyProvider(data.provider, true);
-          const failed = !data.provider || String(data.provider).toLowerCase() === "none";
-          setChatStatus(failed ? "Cloud unavailable" : `Escalated · ${provider}`, failed ? "error" : "escalate");
-          toast(failed ? "Cloud escalate unavailable" : `Escalated to ${provider}`);
+          setChatStatus(cloudFailed ? "Cloud unavailable" : `Escalated · ${provider}`, cloudFailed ? "error" : "escalate");
+          toast(cloudFailed ? (data.cloud_error || "Cloud escalate unavailable") : `Escalated to ${provider}`);
         } else {
           setChatStatus("Local · Jetson", "local");
           toast("Hawkeye replied");
         }
       } catch (e) {
-        appendChat("system", String(e.message || e), { label: "Error" });
+        removePendingChat();
+        appendChat("system", String(e.message || e), { label: "Error", error: true });
         setChatStatus("Could not reply", "error");
         toast(String(e.message || e));
       } finally {
-        sendBtn.disabled = false;
-        sendBtn.textContent = "Send";
+        clearTimeout(waitHint);
+        resetChatSend(sendBtn);
       }
     });
   }

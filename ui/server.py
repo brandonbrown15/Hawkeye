@@ -463,6 +463,52 @@ def _workspace_brief() -> str:
     return "\n".join(lines)
 
 
+def _chat_ollama_timeout_sec() -> float:
+    """Interactive chat must fail fast — do not sit on a 120s Ollama hang."""
+    raw = os.environ.get("HAWKEYE_CHAT_OLLAMA_TIMEOUT_SEC", "18")
+    try:
+        return max(5.0, min(45.0, float(raw)))
+    except ValueError:
+        return 18.0
+
+
+def _friendly_local_error(err: str) -> str:
+    low = (err or "").lower()
+    if "timed out" in low or "timeout" in low:
+        return "The local model did not answer in time. Try again, or Wake Ollama under Account → Machine."
+    if "connection refused" in low or "errno 111" in low or "connection reset" in low:
+        return "Ollama is not running. Open Account → Machine and tap Wake Ollama, then send again."
+    return f"Local model unavailable. {err}"
+
+
+def _is_trivial_chat(message: str) -> bool:
+    """Greetings and pings must not burn a cloud escalate (that hung Send on 'Hi')."""
+    text = (message or "").strip().lower().rstrip("!.?")
+    if not text or len(text) > 24:
+        return False
+    return text in {
+        "hi",
+        "hello",
+        "hey",
+        "yo",
+        "sup",
+        "hiya",
+        "howdy",
+        "hello there",
+        "hi there",
+        "hey there",
+        "good morning",
+        "good afternoon",
+        "good evening",
+        "thanks",
+        "thank you",
+        "ok",
+        "okay",
+        "ping",
+        "test",
+    }
+
+
 def _ollama_chat(
     message: str,
     system: str,
@@ -498,12 +544,14 @@ def _ollama_chat(
         method="POST",
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=120) as resp:
+    with urllib.request.urlopen(req, timeout=_chat_ollama_timeout_sec()) as resp:
         data = _json.loads(resp.read().decode())
     return (data.get("message") or {}).get("content") or data.get("response") or ""
 
 
 def _should_escalate(message: str, local_reply: str, *, history: list[dict[str, str]] | None = None) -> bool:
+    if _is_trivial_chat(message):
+        return False
     text = f"{message}\n{local_reply}".lower()
     triggers = (
         "escalate:",
@@ -520,7 +568,7 @@ def _should_escalate(message: str, local_reply: str, *, history: list[dict[str, 
     keywords = ("architecture", "redesign", "migrate", "multi-service", "security audit")
     if len(message) > 400 or sum(1 for k in keywords if k in message.lower()) >= 2:
         return True
-    if len(local_reply.strip()) < 40:
+    if len(local_reply.strip()) < 40 and len(message.strip()) >= 60:
         return True
 
     # Repo review / deep code inspection is better as Cursor when cloud is allowed.
@@ -889,18 +937,19 @@ def handle_chat(
             "For repo questions, use the workspace brief above and conversation history."
         )
     local_reply = ""
+    local_error = ""
     escalated = False
     try:
         local_reply = _ollama_chat(message, system, history=prior)
     except Exception as e:  # noqa: BLE001
         err = str(e)
-        # Tunnel/UI can be up while Ollama died after boot — try one remote wake.
         woke = False
-        if any(x in err.lower() for x in ("connection refused", "errno 111", "timed out", "urlopen error")):
+        # Wake only when the daemon is down — do not stack another 8s after a hang.
+        if any(x in err.lower() for x in ("connection refused", "errno 111", "connection reset")):
             try:
                 from ui import machine_settings
 
-                wake = machine_settings.ensure_ollama(restart=False, timeout_sec=90)
+                wake = machine_settings.ensure_ollama(restart=False, timeout_sec=5)
                 if wake.get("ok") or wake.get("reachable"):
                     try:
                         local_reply = _ollama_chat(message, system, history=prior)
@@ -908,24 +957,32 @@ def handle_chat(
                     except Exception as e2:  # noqa: BLE001
                         err = str(e2)
                 if not woke:
-                    detail = wake.get("error") or (wake.get("log") or "")[:240]
-                    local_reply = f"(local model unavailable: {err})\n(tried Wake Ollama: {detail})"
+                    local_error = _friendly_local_error(err)
+                    local_reply = local_error
             except Exception as wake_err:  # noqa: BLE001
-                local_reply = f"(local model unavailable: {err}; wake failed: {wake_err})"
+                local_error = _friendly_local_error(f"{err}; wake failed: {wake_err}")
+                local_reply = local_error
         else:
-            local_reply = f"(local model unavailable: {err})"
-        if not woke:
-            escalated = True
-    if not escalated:
+            local_error = _friendly_local_error(err)
+            local_reply = local_error
+    if not local_error:
         escalated = _should_escalate(message, local_reply, history=prior)
+    elif not _is_trivial_chat(message) and (
+        _should_escalate(message, "", history=prior) or len(message.strip()) >= 60
+    ):
+        # Substantial asks may still try cloud when Ollama is down. "Hi" must not.
+        escalated = True
 
     cloud_reply = ""
+    cloud_error = ""
     provider = ""
     if escalated and stay_local:
         escalated = False
         provider = "local-only"
-        if "(local model unavailable:" in local_reply:
-            local_reply += "\n\n(PERSONAL_LOCAL_ONLY=1 — start Ollama or turn that flag off to use Cursor/Grok.)"
+        if local_error:
+            local_reply += (
+                "\n\nLocal only is on — start Ollama or turn Local only off to use Cursor/Grok."
+            )
     elif escalated:
         try:
             # Cloud escalator also gets memory + research context.
@@ -935,8 +992,16 @@ def handle_chat(
                     f"{message}\n\n--- context ---\n{memory_prompt}\n{research_prompt}".strip()
                 )
             cloud_reply, provider = _cloud_chat(enriched, local_reply, email=email)
+            if not provider or str(provider).lower() in ("none", "error"):
+                cloud_error = cloud_reply or (
+                    "Cloud escalate failed. Check Account → Connections for Cursor or Grok."
+                )
         except Exception as e:  # noqa: BLE001
-            cloud_reply = f"(cloud escalate failed: {e})"
+            cloud_error = (
+                "Cloud escalate failed. Check Account → Connections for Cursor or Grok, "
+                f"or turn on Local only. ({e})"
+            )
+            cloud_reply = cloud_error
             provider = "error"
 
     # Surface citations in the local reply when research ran and model omitted them.
@@ -1045,8 +1110,10 @@ def handle_chat(
     return {
         "ok": True,
         "local_reply": local_reply,
+        "local_error": local_error,
         "escalated": escalated,
         "cloud_reply": cloud_reply,
+        "cloud_error": cloud_error,
         "provider": provider,
         "local_only": stay_local,
         "product": name,

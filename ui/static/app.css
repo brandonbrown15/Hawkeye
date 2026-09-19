@@ -657,6 +657,10 @@ input:focus, select:focus, textarea:focus {
   border-radius: 999px;
 }
 
+.count-pill.is-empty {
+  opacity: 0.55;
+}
+
 .kanban-columns {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
@@ -669,6 +673,10 @@ input:focus, select:focus, textarea:focus {
   min-height: 11rem;
   padding: 0.6rem 0.5rem 0.65rem;
   border-radius: var(--radius);
+}
+
+.kanban-col.is-empty {
+  background: color-mix(in srgb, var(--paper-soft) 72%, var(--paper-input));
 }
 
 .kanban-col h3 {
@@ -773,6 +781,11 @@ input:focus, select:focus, textarea:focus {
 }
 
 .col-empty-copy { margin: 0; font-size: 0.84rem; }
+
+.col-empty .chip-btn {
+  margin-top: 0.65rem;
+  align-self: flex-start;
+}
 
 .state-card {
   border: 1px solid var(--line);
@@ -897,7 +910,7 @@ input:focus, select:focus, textarea:focus {
   border: 1px solid var(--line);
   background: var(--paper-input);
   color: var(--navy);
-  max-width: 14rem;
+  max-width: 16rem;
   text-align: right;
 }
 
@@ -970,6 +983,13 @@ input:focus, select:focus, textarea:focus {
   background: var(--system);
   border-color: color-mix(in srgb, var(--warn) 28%, var(--line));
   max-width: 100%;
+}
+
+.chat-msg.pending { opacity: 0.72; }
+
+.chat-msg.is-error {
+  border-color: color-mix(in srgb, var(--fail) 45%, transparent);
+  background: color-mix(in srgb, var(--fail) 10%, var(--paper));
 }
 
 .chat-msg-head {
