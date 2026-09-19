@@ -129,6 +129,38 @@ def _ready_secret(provider: str, field: str, *, email: str | None = None) -> boo
         return False
 
 
+def web_search_status(*, user: str | None = None) -> dict[str, Any]:
+    """Local only vs Brave — used by settings, readiness, and chat prompts."""
+    from research.web import brave_configured
+
+    email = None if _is_open_user(user) else user
+    local_only = ui_auth.personal_local_only(user)
+    brave = brave_configured(email=email)
+    enabled = env_truthy("HAWKEYE_RESEARCH_ENABLED", "1")
+    if local_only and brave:
+        hint = "Web search (Brave) needs Local only off."
+    elif local_only:
+        hint = "Local only is on — no external web."
+    elif brave:
+        hint = "Brave Search is connected — web search is available."
+    else:
+        hint = "Add a Brave Search key under Connections for preferred web search."
+    return {
+        "brave_search_configured": brave,
+        "web_search_allowed": (not local_only) and enabled,
+        "web_search_hint": hint,
+    }
+
+
+def _research_ready_hint(user: str | None) -> str:
+    status = web_search_status(user=user)
+    if status["brave_search_configured"] and not status["web_search_allowed"]:
+        return status["web_search_hint"]
+    if not status["web_search_allowed"]:
+        return "Local only is on — turn it off for Brave / web search"
+    return "Account → Connections → Brave; HAWKEYE_RESEARCH_DEEP=1 fetches pages"
+
+
 def gh_authed() -> bool:
     try:
         r = subprocess.run(
@@ -235,7 +267,7 @@ def readiness(*, user: str | None = None) -> dict[str, Any]:
             "id": "research",
             "label": "Web research (deep page read)",
             "ok": env_truthy("HAWKEYE_RESEARCH_ENABLED", "1"),
-            "hint": "Account → Connections → Brave; HAWKEYE_RESEARCH_DEEP=1 fetches pages",
+            "hint": _research_ready_hint(user),
             "optional": True,
         },
         {
@@ -288,6 +320,7 @@ def readiness(*, user: str | None = None) -> dict[str, Any]:
         "details": details,
         "cost_profile": os.environ.get("AUTOCODE_COST_PROFILE", "cursor-grok"),
         "memory": memory_stats,
+        **web_search_status(user=user),
     }
 
 
@@ -647,11 +680,11 @@ def _cloud_chat(message: str, local_reply: str, *, email: str | None = None) -> 
 
     from ui import connections
 
+    from ui import identity
+
     name = ui_auth.product_name()
     prompt = (
-        f"You are {name}'s cloud escalator. The local Jetson model could not fully "
-        "handle this operator instruction. Provide a concrete plan or answer, and if "
-        "work should be queued, end with IMPROVE: <checklist item>.\n\n"
+        f"{identity.cloud_escalator_prompt(name)}\n\n"
         f"Operator: {message}\n\nLocal model said:\n{local_reply[:2000]}"
     )
     payload = {
@@ -827,7 +860,10 @@ def _memory_context(message: str) -> tuple[str, list[dict[str, Any]]]:
     try:
         from memory import get_store
 
+        from ui import identity
+
         store = get_store()
+        store.ensure_identity_seed(identity.MEMORY_SEED_TEXT)
         hits = store.search(message, limit=int(os.environ.get("HAWKEYE_MEMORY_TOP_K", "5") or "5"))
         prompt = store.format_for_prompt(message) if hits else ""
         return prompt, [
@@ -839,18 +875,38 @@ def _memory_context(message: str) -> tuple[str, list[dict[str, Any]]]:
         return "", []
 
 
-def _research_context(message: str) -> tuple[str, dict[str, Any] | None]:
-    """Optional web research when the operator asks for facts/docs."""
+def _research_context(
+    message: str,
+    *,
+    local_only: bool = False,
+    email: str | None = None,
+) -> tuple[str, dict[str, Any] | None]:
+    """Optional web research when the operator asks for facts/docs.
+
+    Local only means no external web (Brave / DuckDuckGo / page fetch).
+    """
     if not env_truthy("HAWKEYE_RESEARCH_ENABLED", "1"):
         return "", None
     try:
         from research import research, wants_research
+        from research.web import brave_configured, format_web_policy_for_prompt
 
         if not wants_research(message):
             return "", None
+        if local_only:
+            brave = brave_configured(email=email)
+            return format_web_policy_for_prompt(local_only=True, brave=brave), {
+                "skipped": "local_only",
+                "query": message,
+                "provider": "",
+                "error": None,
+                "sources": [],
+                "brave_configured": brave,
+            }
         result = research(
             message,
             limit=int(os.environ.get("HAWKEYE_RESEARCH_TOP_K", "5") or "5"),
+            email=email,
         )
         return result.format_for_prompt(), result.to_dict()
     except Exception as e:  # noqa: BLE001
@@ -999,18 +1055,18 @@ def handle_chat(
     # Drop trailing duplicate of the current user message if the client included it.
     if prior and prior[-1]["role"] == "user" and prior[-1]["content"] == message:
         prior = prior[:-1]
+    from research.web import brave_configured, format_web_policy_for_prompt
+    from ui import identity
+
     memory_prompt, memory_hits = _memory_context(message)
-    research_prompt, research_payload = _research_context(message)
+    research_prompt, research_payload = _research_context(
+        message, local_only=stay_local, email=email
+    )
+    brave = brave_configured(email=email)
     system = (
-        f"You are {name} — BrownHawke's private assistant engineer / project manager "
-        "running on a Jetson (free all-day local model). "
-        "You research, remember, and drive other AIs/software to finish engineering work. "
-        "Be concise. Use conversation history — never re-ask for facts the operator already gave. "
-        "If the request is too strenuous for a local model, start with ESCALATE: and say why "
-        "so Cursor or Grok Bot can take over. If a durable follow-up should be queued, "
-        "end with IMPROVE: <checklist item> or BUG: <bug>. "
-        "When web research is provided, cite the source URLs.\n\n"
-        f"{_workspace_brief()}"
+        f"{identity.chat_system_prompt(name)}\n\n"
+        f"{_workspace_brief()}\n\n"
+        f"{format_web_policy_for_prompt(local_only=stay_local, brave=brave)}"
     )
     if memory_prompt:
         system += "\n\n" + memory_prompt
@@ -1019,7 +1075,8 @@ def handle_chat(
     if stay_local:
         system += (
             " PERSONAL_LOCAL_ONLY is on: do not ask for cloud models. "
-            "For repo questions, use the workspace brief above and conversation history."
+            "No external web. For repo questions, use the workspace brief above "
+            "and conversation history."
         )
     local_reply = ""
     local_error = ""
@@ -1206,6 +1263,7 @@ def handle_chat(
         "memory_id": memory_id,
         "memory_hits": memory_hits,
         "research": research_payload,
+        **web_search_status(user=email),
     }
 
 
@@ -1464,6 +1522,7 @@ class Handler(BaseHTTPRequestHandler):
                         if not ui_auth.private_mode_enabled()
                         else [],
                         "configured_user_count": len(ui_auth.load_users()),
+                        **web_search_status(user=auth_user),
                         **access,
                     }
                 )
@@ -1482,8 +1541,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/ready":
             return self._send(*json_response(readiness(user=self._current_user())))
         if path == "/api/settings":
+            settings_user = self._current_user()
             return self._send(
-                *json_response({"ok": True, **runtime.effective(self._current_user())})
+                *json_response(
+                    {
+                        "ok": True,
+                        **runtime.effective(settings_user),
+                        **web_search_status(user=settings_user),
+                    }
+                )
             )
         if path == "/api/machine":
             user = self._require_user()
@@ -1890,7 +1956,9 @@ class Handler(BaseHTTPRequestHandler):
                 out = runtime.set_personal_local_only(enabled, user=user)
             except ValueError as e:
                 return self._send(*json_response({"ok": False, "error": str(e)}, 400))
-            return self._send(*json_response({"ok": True, **out}))
+            return self._send(
+                *json_response({"ok": True, **out, **web_search_status(user=user)})
+            )
         if path == "/api/demo":
             return self._send(*json_response(start_demo()))
         if path == "/api/work":

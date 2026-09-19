@@ -21,7 +21,8 @@ Bootstrap creates the directory:
 1. Each UI chat turn is embedded (Ollama `nomic-embed-text` when available; otherwise a deterministic hash embed).
 2. Records append to `memories.jsonl` with metadata (`kind`, provider, escalated flag).
 3. Before answering, Hawkeye retrieves top-k similar memories and injects them into the system prompt.
-4. Optional `HAWKEYE_MEMORY_KEY` encrypts each line at rest (HMAC + keystream). See [security.md](security.md).
+4. A one-time `kind=identity` seed is written so retrieval cannot invent that Brandon Brown is the Jetson host. UI / Modelfile prompts also state: Brandon is the human who created Hawkeye; Hawkeye (software) runs on the Jetson.
+5. Optional `HAWKEYE_MEMORY_KEY` encrypts each line at rest (HMAC + keystream). See [security.md](security.md).
 
 ## Env
 

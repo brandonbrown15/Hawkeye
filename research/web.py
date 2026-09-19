@@ -91,6 +91,11 @@ _RESEARCH_TRIGGERS = (
     "look up",
     "search the web",
     "search online",
+    "search for",
+    "search up",
+    "please search",
+    "can you search",
+    "web search",
     "deep search",
     "deep research",
     "deep web",
@@ -105,7 +110,13 @@ _RESEARCH_TRIGGERS = (
     "browse",
     "who makes",
     "datasheet",
+    "look this up",
+    "look it up",
+    "look that up",
 )
+
+# Bare "search …" (not the substring inside "research") so chat actually invokes Brave.
+_SEARCH_VERB_RE = re.compile(r"\bsearch(?:es|ing|ed)?\b", re.IGNORECASE)
 
 _DEEP_TRIGGERS = (
     "deep search",
@@ -125,6 +136,8 @@ def wants_research(message: str) -> bool:
     if os.environ.get("HAWKEYE_RESEARCH_ALWAYS", "").lower() in ("1", "true", "yes"):
         return True
     if any(t in text for t in _RESEARCH_TRIGGERS):
+        return True
+    if _SEARCH_VERB_RE.search(text):
         return True
     if text.startswith("/research ") or text.startswith("research:"):
         return True
@@ -149,7 +162,51 @@ def _env_int(key: str, default: int) -> int:
         return default
 
 
-def research(query: str, *, limit: int = 5, deep: bool | None = None) -> ResearchResult:
+def brave_configured(*, email: str | None = None) -> bool:
+    """True when Account → Connections or BRAVE_SEARCH_API_KEY has a Brave key."""
+    try:
+        from ui import connections
+
+        if connections.resolve_secret("brave", "api_key", email=email):
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return bool(os.environ.get("BRAVE_SEARCH_API_KEY", "").strip())
+
+
+def format_web_policy_for_prompt(*, local_only: bool, brave: bool) -> str:
+    """Tell the local model whether it may treat the web as available."""
+    if local_only:
+        extra = (
+            "Brave Search is configured — the operator must turn Local only off to use it."
+            if brave
+            else "No external web. Add a Brave Search key under Account → Connections after turning Local only off."
+        )
+        return (
+            "LOCAL ONLY is on: no external web, no Brave Search, no page fetches. "
+            "Do not invent live web facts or claim you browsed. "
+            f"{extra}"
+        )
+    if brave:
+        return (
+            "Web search is available via Brave Search (operator key configured). "
+            "When web research results are attached, use them and cite URLs. "
+            "Never claim you have no internet, cannot search, or are offline."
+        )
+    return (
+        "Web search may use DuckDuckGo HTML (no Brave key on this account). "
+        "When research results are attached, use them. "
+        "Do not claim you have no internet if sources are provided."
+    )
+
+
+def research(
+    query: str,
+    *,
+    limit: int = 5,
+    deep: bool | None = None,
+    email: str | None = None,
+) -> ResearchResult:
     query = (query or "").strip()
     if query.lower().startswith("research:"):
         query = query.split(":", 1)[1].strip()
@@ -159,7 +216,7 @@ def research(query: str, *, limit: int = 5, deep: bool | None = None) -> Researc
         return ResearchResult(query="", error="empty query")
 
     do_deep = wants_deep(query) if deep is None else deep
-    result = _serp(query, limit=limit)
+    result = _serp(query, limit=limit, email=email)
     if result.error and not result.sources:
         return result
 
@@ -171,7 +228,7 @@ def research(query: str, *, limit: int = 5, deep: bool | None = None) -> Researc
         if _weak_result(result) and _env_int("HAWKEYE_RESEARCH_MAX_ROUNDS", 2) >= 2:
             alt = _reformulate(query)
             if alt and alt.lower() != query.lower():
-                second = _serp(alt, limit=limit)
+                second = _serp(alt, limit=limit, email=email)
                 if second.sources:
                     _enrich_with_pages(second)
                     # Prefer second-round sources that added excerpts.
@@ -186,12 +243,12 @@ def research(query: str, *, limit: int = 5, deep: bool | None = None) -> Researc
     return result
 
 
-def _serp(query: str, *, limit: int) -> ResearchResult:
+def _serp(query: str, *, limit: int, email: str | None = None) -> ResearchResult:
     brave_key = ""
     try:
         from ui import connections
 
-        brave_key = connections.resolve_secret("brave", "api_key")
+        brave_key = connections.resolve_secret("brave", "api_key", email=email)
     except Exception:  # noqa: BLE001
         brave_key = os.environ.get("BRAVE_SEARCH_API_KEY", "").strip()
 

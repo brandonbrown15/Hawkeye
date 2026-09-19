@@ -12,6 +12,8 @@ from typing import Any
 
 from memory import crypto, embed
 
+IDENTITY_SEED_FINGERPRINT = "hawkeye-identity-v1"
+
 
 @dataclass
 class MemoryHit:
@@ -122,6 +124,23 @@ class MemoryStore:
 
     def remember_decision(self, decision: str, *, meta: dict[str, Any] | None = None) -> MemoryRecord:
         return self.remember(decision, kind="decision", meta=meta)
+
+    def has_identity_seed(self, fingerprint: str = IDENTITY_SEED_FINGERPRINT) -> bool:
+        return any(
+            rec.kind == "identity" and rec.meta.get("fingerprint") == fingerprint
+            for rec in self.load()
+        )
+
+    def ensure_identity_seed(
+        self,
+        text: str,
+        *,
+        fingerprint: str = IDENTITY_SEED_FINGERPRINT,
+    ) -> MemoryRecord | None:
+        """Write the Brandon/Hawkeye identity fact once so retrieval cannot invent it."""
+        if self.has_identity_seed(fingerprint):
+            return None
+        return self.remember(text, kind="identity", meta={"fingerprint": fingerprint})
 
     def load(self, *, reload: bool = False) -> list[MemoryRecord]:
         with self._lock:
