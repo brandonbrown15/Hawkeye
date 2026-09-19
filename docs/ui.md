@@ -33,6 +33,8 @@ Overnight / continuous worker timers (separate from UI boot):
 
 The same dashboard works over Tailscale remote access — chat, controls, and status are identical on phone or laptop.
 
+The signed-in shell is **project-first**: a queue on the left and Talk to Hawkeye on the right. Appearance defaults to the device (`prefers-color-scheme`) on login and the app; Account → Appearance can pin Light or Dark. Both themes share Libre Baskerville / Liberation Serif and navy fills — light is white paper + `#002d62`, dark is ink navy (`#0e1624`, not a flat zinc console). The chat header shows live Jetson CPU / GPU / RAM / temp / Ollama from `GET /api/host`. Send sits beside the composer. Inbox and autopilot sit on the Inbox pane.
+
 ## Remote monitoring (phone / laptop)
 
 ### Option A — Tailscale (recommended)
@@ -107,7 +109,7 @@ The dashboard chat box talks to the **local** Ollama model first (free all day o
 
 Set `CURSOR_API_KEY` (Cursor Dashboard → API Keys) for premium Cursor handoff. Optional: `CURSOR_REPOSITORY` for coding agents, or `CURSOR_WEBHOOK_URL` for a custom bridge. Also optional: `GROK_BOT_WEBHOOK_URL`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, or `XAI_API_KEY`.
 
-Use the **Local only** switch in the dashboard header to force free Jetson Ollama for chat (**no Cursor/Grok and no external web**, including Brave Search). The setting is **per signed-in account** (stored under that email in `state/hawkeye-runtime.json`), so `brandon@` and `mark@` can choose independently. It overrides `AUTOCODE_PERSONAL_LOCAL_ONLY` for that user until they flip it back.
+Use the **Local only** switch in the dashboard header for **Jetson replies only** (**no Cursor/Grok and no external web**, including Brave Search). The setting is **per signed-in account** (stored under that email in `state/hawkeye-runtime.json`), so `brandon@` and `mark@` can choose independently. It overrides `AUTOCODE_PERSONAL_LOCAL_ONLY` for that user until they flip it back.
 
 When Local only is on and a Brave Search key is saved under Connections, the header hint says web search needs Local only off. Turn the switch off to let chat call Brave (or DuckDuckGo if no key). With Local only off, the chat status is **Hawkeye · Brave** / **Brave ready** — not **Local · Jetson**. See [research.md](research.md).
 
