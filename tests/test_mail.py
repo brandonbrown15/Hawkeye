@@ -169,10 +169,14 @@ class InboundTests(unittest.TestCase):
             skip_verify=True,
         )
         msg_id = out["id"]
-        with mock.patch.object(service, "_ollama_chat", return_value="Thanks — looking into it."):
+        with mock.patch.object(service, "_ollama_chat", return_value="Thanks — looking into it.") as ollama:
             drafted = service.draft_reply(msg_id)
         self.assertTrue(drafted["ok"])
         self.assertIn("looking into it", drafted["draft"])
+        system = ollama.call_args[0][1]
+        self.assertIn("Brandon Brown", system)
+        self.assertIn("software assistant", system)
+        self.assertNotIn("BrownHawke's private assistant engineer", system)
         msg = store.get_message(msg_id)
         self.assertEqual(msg.status, "drafted")
 

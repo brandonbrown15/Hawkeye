@@ -109,7 +109,10 @@ PROVIDER_META = {
     "brave": {
         "label": "Brave Search",
         "fields": ["api_key"],
-        "hint": "Brave Search API key (else DuckDuckGo HTML)",
+        "hint": (
+            "Brave Search API key for chat web search when Local only is off "
+            "(DuckDuckGo HTML is the fallback if no key). Local only blocks all external web."
+        ),
     },
     "telegram": {
         "label": "Telegram",

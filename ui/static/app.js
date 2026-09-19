@@ -186,10 +186,26 @@
     ].filter(Boolean);
     const readyMeta = document.getElementById("readyMeta");
     if (readyMeta) readyMeta.textContent = bits.join(" · ");
-    syncLocalOnlyToggle(!!data.personal_local_only, data.settings_user);
+    syncLocalOnlyToggle(!!data.personal_local_only, data.settings_user, data);
   }
 
-  function syncLocalOnlyToggle(on, user) {
+  let webSearchState = { brave: false, allowed: true, hint: "" };
+
+  function applyWebSearchState(data) {
+    if (!data || typeof data !== "object") return;
+    if (typeof data.brave_search_configured === "boolean") {
+      webSearchState.brave = data.brave_search_configured;
+    }
+    if (typeof data.web_search_allowed === "boolean") {
+      webSearchState.allowed = data.web_search_allowed;
+    }
+    if (typeof data.web_search_hint === "string") {
+      webSearchState.hint = data.web_search_hint;
+    }
+  }
+
+  function syncLocalOnlyToggle(on, user, extras) {
+    if (extras) applyWebSearchState(extras);
     const toggle = document.getElementById("localOnlyToggle");
     const wrap = toggle && toggle.closest(".local-only-switch");
     const hint = document.getElementById("localOnlyHint");
@@ -197,20 +213,32 @@
     if (toggle) toggle.checked = !!on;
     if (wrap) wrap.classList.toggle("is-on", !!on);
     const who = user && user.includes("@") ? user.split("@")[0] : "your account";
+    const brave = webSearchState.brave;
     if (hint) {
-      hint.textContent = on ? `${who}: no Cursor/Grok` : `${who}: escalate ok`;
+      hint.textContent = on
+        ? (brave ? `${who}: no web — off for Brave` : `${who}: no cloud / no web`)
+        : (brave ? `${who}: escalate + Brave ok` : `${who}: escalate ok`);
     }
     if (note) {
       note.textContent = on
-        ? `Local only on for ${who} — replies stay on the Jetson.`
-        : "Plan, research, or drive the Notion board. Local only is per account.";
+        ? (brave
+            ? `Local only on for ${who} — Jetson only. Web search (Brave) needs Local only off.`
+            : `Local only on for ${who} — Jetson only. No external web.`)
+        : (brave
+            ? "Plan, research, or drive the Notion board. Brave Search is on (Local only is off)."
+            : "Plan, research, or drive the Notion board. Local only is per account.");
+    }
+    if (wrap) {
+      wrap.title = on
+        ? "Local only: free Jetson Ollama — no Cursor/Grok and no external web (including Brave Search)."
+        : "Local only is off: cloud escalate allowed; Brave Search runs when you ask.";
     }
   }
 
   async function loadLocalOnlySetting() {
     try {
       const data = await get("/api/settings");
-      syncLocalOnlyToggle(!!data.personal_local_only, data.user);
+      syncLocalOnlyToggle(!!data.personal_local_only, data.user, data);
     } catch (_) {
       /* optional on first paint */
     }
@@ -857,7 +885,9 @@
         if (localFailed) {
           appendChat("system", data.local_error, { label: "Ollama", error: true });
         } else if (data.local_reply) {
-          appendChat("local", data.local_reply, { label: "Jetson" });
+          const localLabel = data.reply_label
+            || (data.local_only ? "Jetson" : (data.brave_search_configured ? "Hawkeye · Brave" : "Hawkeye"));
+          appendChat("local", data.local_reply, { label: localLabel });
         }
         if (data.escalated && (data.cloud_reply || data.cloud_error)) {
           if (cloudFailed) {
@@ -866,6 +896,13 @@
             const provider = friendlyProvider(data.provider, true);
             appendChat("cloud", data.cloud_reply, { provider, label: provider });
           }
+        }
+        if (data.research && data.research.skipped === "local_only") {
+          appendChat(
+            "system",
+            data.web_search_hint || "Web search skipped — Local only is on. Turn it off to use Brave Search.",
+            { label: "Local only" }
+          );
         }
         if (data.seeded_task) {
           appendChat("system", `Added to the Notion board: ${data.seeded_task}`, { label: "Board" });
@@ -881,7 +918,12 @@
           setChatStatus(cloudFailed ? "Cloud unavailable" : `Escalated · ${provider}`, cloudFailed ? "error" : "escalate");
           toast(cloudFailed ? (data.cloud_error || "Cloud escalate unavailable") : `Escalated to ${provider}`);
         } else {
-          setChatStatus("Local · Jetson", "local");
+          const status = data.status_label
+            || (data.local_only
+              ? "Local · Jetson"
+              : (data.brave_search_configured ? "Hawkeye · Brave ready" : "Hawkeye"));
+          const kind = data.local_only ? "local" : (data.brave_search_configured ? "web" : "local");
+          setChatStatus(status, kind);
           toast("Hawkeye replied");
         }
       } catch (e) {
@@ -921,11 +963,11 @@
       localOnlyToggle.disabled = true;
       try {
         const data = await post("/api/settings", { personal_local_only: enabled });
-        syncLocalOnlyToggle(!!data.personal_local_only, data.user);
+        syncLocalOnlyToggle(!!data.personal_local_only, data.user, data);
         toast(
           data.personal_local_only
-            ? `Local only on for ${data.user || "you"} — free Jetson model only`
-            : `Local only off for ${data.user || "you"} — Cursor/Grok escalate allowed`
+            ? `Local only on for ${data.user || "you"} — free Jetson model only (no Cursor/Grok, no Brave Search)`
+            : `Local only off for ${data.user || "you"} — Cursor/Grok escalate and Brave Search allowed`
         );
         refreshOps().catch(() => {});
       } catch (e) {
@@ -1512,7 +1554,7 @@
     .then((auth) => {
       currentUser = auth.user || (auth.profile && auth.profile.email) || null;
       if (typeof auth.personal_local_only === "boolean") {
-        syncLocalOnlyToggle(auth.personal_local_only, auth.user);
+        syncLocalOnlyToggle(auth.personal_local_only, auth.user, auth);
       }
       const btn = document.getElementById("logoutBtn");
       const accountBtn = document.getElementById("accountBtn");

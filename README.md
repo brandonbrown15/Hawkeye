@@ -227,7 +227,7 @@ Details: [docs/pm.md](docs/pm.md) · [docs/notion-setup.md](docs/notion-setup.md
 # BASE_MODEL=qwen2.5-coder:3b ./ollama/create_coder_64k.sh
 ```
 
-The Modelfile sets `num_ctx 65536` and a **Hawkeye** system prompt (BrownHawke engineering assistant). UI chat also injects Hawkeye identity + retrieved memory.
+The Modelfile sets `num_ctx 65536` and a **Hawkeye** system prompt: Hawkeye is software created by Brandon Brown (a human); it runs on a Jetson. UI chat also injects that identity + retrieved memory. Local only blocks cloud escalate **and** Brave / web search — see [docs/research.md](docs/research.md).
 
 ### 5. Vector memory + research
 

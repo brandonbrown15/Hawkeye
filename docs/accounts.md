@@ -41,7 +41,7 @@ Stored in `$AUTOCODE_DATA_ROOT/hawkeye/accounts/profiles.json` (or `state/hawkey
 | ChatGPT / Codex | OpenAI API key (+ optional org id) |
 | Grok Bot / xAI | Webhook URL + token and/or xAI API key |
 | OpenRouter | API key |
-| Brave Search | API key (else DuckDuckGo HTML) |
+| Brave Search | API key (else DuckDuckGo HTML). Used for chat web search **only when Local only is off**. |
 | Telegram | Bot token + chat id |
 
 Encrypt at rest with `HAWKEYE_MEMORY_KEY` or dedicated `HAWKEYE_SECRETS_KEY` (set under **Account → Machine** first — saves are refused without it). The UI never displays raw secrets after save.
