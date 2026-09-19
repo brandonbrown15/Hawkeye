@@ -802,6 +802,8 @@ class UiHelpersTests(unittest.TestCase):
         self.assertIn("overflow: hidden", css)
         self.assertIn("workspace-secondary", html)
         self.assertIn("Jetson replies only", html)
+        self.assertIn("Jetson replies only", js)
+        self.assertIn("Brave search", js)
         for page in (html, login):
             self.assertIn("Libre+Baskerville", page)
             self.assertIn('localStorage.getItem("hawkeye-theme")', page)

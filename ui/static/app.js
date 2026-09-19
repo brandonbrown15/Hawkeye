@@ -1166,8 +1166,8 @@
         syncLocalOnlyToggle(!!data.personal_local_only, data.user);
         toast(
           data.personal_local_only
-            ? `Local only on for ${data.user || "you"} — free Jetson model only`
-            : `Local only off for ${data.user || "you"} — Cursor/Grok escalate allowed`
+            ? `Local only on for ${data.user || "you"} — Jetson replies only`
+            : `Local only off for ${data.user || "you"} — cloud / Brave search allowed`
         );
         refreshOps().catch(() => {});
       } catch (e) {
