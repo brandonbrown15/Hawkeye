@@ -203,7 +203,7 @@
     if (note) {
       note.textContent = on
         ? `Local only on for ${who} — replies stay on the Jetson.`
-        : "Plan, research, or queue work. Local only is per account.";
+        : "Plan, research, or drive the Notion board. Local only is per account.";
     }
   }
 
@@ -809,6 +809,8 @@
         }
         if (data.seeded_task) {
           appendChat("system", `Added to the Notion board: ${data.seeded_task}`, { label: "Board" });
+        }
+        if (data.seeded_task || (data.pm && data.pm.ok && (data.pm.action === "update" || data.pm.action === "create"))) {
           loadBoard().catch(() => {});
         }
         if (localFailed && !data.escalated) {

@@ -902,6 +902,68 @@ def _is_open_user(user: str | None) -> bool:
     return not user or user in ("open@local", runtime.OPEN_USER)
 
 
+def _handle_pm_chat_turn(
+    message: str,
+    intent: Any,
+    *,
+    stay_local: bool,
+    name: str,
+) -> dict[str, Any]:
+    """Answer board commands locally — never routes through Cursor/Grok."""
+    from ui import pm_chat
+
+    pm_out = pm_chat.execute_pm_intent(intent)
+    local_reply = str(pm_out.get("reply") or "")
+    seeded_task = pm_out.get("seeded_task")
+    memory_id = _persist_memory(
+        message,
+        local_reply,
+        "",
+        provider="pm",
+        escalated=False,
+        research_payload=None,
+    )
+    STATE.mkdir(parents=True, exist_ok=True)
+    log = STATE / "ui-chat.jsonl"
+    import json as _json
+    import time as _time
+
+    with log.open("a") as fh:
+        fh.write(
+            _json.dumps(
+                {
+                    "ts": _time.time(),
+                    "message": message,
+                    "local_reply": local_reply,
+                    "escalated": False,
+                    "cloud_reply": "",
+                    "provider": "pm",
+                    "local_only": stay_local,
+                    "seeded_task": seeded_task,
+                    "memory_id": memory_id,
+                    "memory_hits": 0,
+                    "research": None,
+                    "pm": pm_out,
+                }
+            )
+            + "\n"
+        )
+    return {
+        "ok": True,
+        "local_reply": local_reply,
+        "escalated": False,
+        "cloud_reply": "",
+        "provider": "pm",
+        "local_only": stay_local,
+        "product": name,
+        "seeded_task": seeded_task,
+        "memory_id": memory_id,
+        "memory_hits": [],
+        "research": None,
+        "pm": pm_out,
+    }
+
+
 def handle_chat(
     message: str,
     seed_notion: bool = True,
@@ -921,6 +983,18 @@ def handle_chat(
     connections.set_request_user(email)
     stay_local = ui_auth.personal_local_only(email)
     name = ui_auth.product_name()
+
+    from ui import pm_chat
+
+    pm_intent = pm_chat.parse_pm_intent(message)
+    if pm_intent is not None:
+        return _handle_pm_chat_turn(
+            message,
+            pm_intent,
+            stay_local=stay_local,
+            name=name,
+        )
+
     prior = _normalize_chat_history(history)
     # Drop trailing duplicate of the current user message if the client included it.
     if prior and prior[-1]["role"] == "user" and prior[-1]["content"] == message:

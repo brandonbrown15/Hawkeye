@@ -197,24 +197,24 @@
         <header class="chat-head">
           <div>
             <h2 id="chatHeading">Talk to Hawkeye</h2>
-            <p class="section-note" id="chatNote">Plan, research, or queue work. Local only is per account.</p>
+            <p class="section-note" id="chatNote">Plan, research, or drive the Notion board. Local only is per account.</p>
           </div>
           <p class="chat-status" id="chatStatus" hidden></p>
         </header>
         <div id="chatLog" class="chat-log" role="log" aria-live="polite">
           <div class="chat-empty" id="chatEmpty">
             <p class="state-title">Ready when you are</p>
-            <p class="state-copy">Plan work, research a blocker, or queue a Notion task. Replies start on the Jetson. Hard jobs escalate only when Local only is off.</p>
+            <p class="state-copy">Ask “what's on the Hawkeye board?”, “show open P0/P1”, or “add a Ready task: …”. Replies start on the Jetson. Hard jobs escalate only when Local only is off.</p>
             <div class="chat-suggestions" id="chatSuggestions">
-              <button type="button" class="chip-btn" data-suggest="What is blocked on the board right now?">What's blocked?</button>
-              <button type="button" class="chip-btn" data-suggest="Deep research Cloudflare Tunnel DNS for Jetson.">Research tunnel DNS</button>
-              <button type="button" class="chip-btn" data-suggest="Draft a Ready task to harden Hawkeye login on mobile.">Queue a Ready task</button>
+              <button type="button" class="chip-btn" data-suggest="what's on the Hawkeye board?">What's on the board?</button>
+              <button type="button" class="chip-btn" data-suggest="show open P0/P1">Open P0/P1</button>
+              <button type="button" class="chip-btn" data-suggest="add a Ready task: harden Hawkeye login on mobile">Queue a Ready task</button>
             </div>
           </div>
         </div>
         <form class="chat-form" id="chatForm">
           <label for="chatInput" class="sr-only">Message</label>
-          <textarea id="chatInput" rows="3" placeholder="Message Hawkeye… Enter to send, Shift+Enter for a new line." required></textarea>
+          <textarea id="chatInput" rows="3" placeholder="e.g. what's on the Hawkeye board? Enter to send, Shift+Enter for a new line." required></textarea>
           <div class="chat-actions">
             <label class="check-inline"><input type="checkbox" id="chatSeed" checked /> Seed Notion when useful</label>
             <button type="submit" class="btn primary" id="chatSend">Send</button>

@@ -212,9 +212,9 @@ Without `NOTION_TOKEN`, the UI shows sample cards (`HAWKEYE_PM_MOCK=1` forces mo
 
 Team flow:
 
-1. Put work in Notion (Status = **Ready**) or ask Hawkeye chat to seed tasks.  
-2. View the same board in Hawkeye.  
-3. Update status in the task drawer (writes to Notion).  
+1. Put work in Notion (Status = **Ready**) or ask Hawkeye chat (`add a Ready task: …`).  
+2. View the same board in Hawkeye, or ask `what's on the Hawkeye board?` / `show open P0/P1`.  
+3. Update status in the task drawer or chat (`mark HK-xx Done`).  
 4. Autopilot / overnight drain uses the same Build Queue.
 
 Details: [docs/pm.md](docs/pm.md) · [docs/notion-setup.md](docs/notion-setup.md)

@@ -10,6 +10,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 from urllib import request
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +33,59 @@ class PmHelpersTests(unittest.TestCase):
         ids = {b.id for b in boards}
         self.assertIn("hawkeye", ids)
         self.assertIn("rose", ids)
+
+    def test_normalize_task_id_and_status(self) -> None:
+        self.assertEqual(notion_pm.normalize_task_id("hk5"), "HK-5")
+        self.assertEqual(notion_pm.normalize_task_id("HK-12"), "HK-12")
+        self.assertEqual(notion_pm.normalize_status("done"), "Done")
+        self.assertEqual(notion_pm.normalize_status("to Ready please"), None)
+        self.assertEqual(notion_pm.normalize_status("Ready please"), "Ready")
+
+    def test_filter_open_priority(self) -> None:
+        cards = [
+            notion_pm.TaskCard(page_id="1", task_id="HK-1", name="a", status="Done", priority="P0"),
+            notion_pm.TaskCard(page_id="2", task_id="HK-2", name="b", status="Ready", priority="P0"),
+            notion_pm.TaskCard(page_id="3", task_id="HK-3", name="c", status="Ready", priority="P2"),
+        ]
+        open_p0 = notion_pm.filter_tasks(cards, open_only=True, priorities=["P0"])
+        self.assertEqual([t.task_id for t in open_p0], ["HK-2"])
+
+    def test_create_task_posts_ready_page(self) -> None:
+        captured: dict = {}
+
+        def fake_api(method: str, path: str, body=None):
+            captured["method"] = method
+            captured["path"] = path
+            captured["body"] = body
+            return {
+                "id": "new-page",
+                "url": "https://www.notion.so/new-page",
+                "properties": {
+                    "Name": {"title": [{"plain_text": "Chat PM slice"}]},
+                    "Status": {"select": {"name": "Ready"}},
+                    "Priority": {"select": {"name": "P1"}},
+                    "Task ID": {"unique_id": {"prefix": "HK", "number": 21}},
+                },
+            }
+
+        with mock.patch.object(notion_pm, "notion_api", side_effect=fake_api):
+            with mock.patch.object(notion_pm, "_token", return_value="tok"):
+                card = notion_pm.create_task("Chat PM slice", priority="P1")
+        self.assertEqual(captured["method"], "POST")
+        self.assertEqual(captured["path"], "/pages")
+        self.assertEqual(captured["body"]["properties"]["Status"]["select"]["name"], "Ready")
+        self.assertEqual(card.task_id, "HK-21")
+        self.assertEqual(card.status, "Ready")
+
+    def test_find_task_by_id_uses_query(self) -> None:
+        cards = [
+            notion_pm.TaskCard(page_id="p5", task_id="HK-5", name="Orch", status="Ready"),
+        ]
+        with mock.patch.object(notion_pm, "query_board_tasks", return_value=cards):
+            found = notion_pm.find_task_by_id("hk-5")
+        self.assertIsNotNone(found)
+        assert found is not None
+        self.assertEqual(found.page_id, "p5")
 
 
 class PmApiTests(unittest.TestCase):
