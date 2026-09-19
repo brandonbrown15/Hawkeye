@@ -8,6 +8,43 @@
 
   const BUILD_STATUSES = ["Ready", "Running", "Needs review", "Blocked", "Backlog", "Done"];
   const ROSE_STATUSES = ["Now", "Next", "Blocked", "Done", "Parked"];
+  const EMPTY_COLS = {
+    Ready: ["Nothing Ready", "Ask Hawkeye to queue the next task."],
+    Running: ["Idle", "No task is in flight."],
+    "Needs review": ["Clear", "Nothing waiting for review."],
+    Blocked: ["No blockers", "Nothing stuck right now."],
+    Backlog: ["Empty backlog", "Park ideas from chat when they come up."],
+    Done: ["Nothing done yet", "Finished work will land here."],
+    Now: ["Nothing Now", "Promote a task when you start it."],
+    Next: ["Nothing Next", "Stage the following piece of work."],
+    Parked: ["Nothing parked", "Set aside work that can wait."],
+  };
+
+  function emptyColumn(status) {
+    const wrap = document.createElement("div");
+    wrap.className = "col-empty";
+    const title = document.createElement("p");
+    title.className = "col-empty-title";
+    const copy = document.createElement("p");
+    copy.className = "col-empty-copy";
+    const bits = EMPTY_COLS[status] || ["Empty", "Nothing in this column."];
+    title.textContent = bits[0];
+    copy.textContent = bits[1];
+    wrap.append(title, copy);
+    if (["Ready", "Running", "Backlog"].includes(status)) {
+      const ask = document.createElement("button");
+      ask.type = "button";
+      ask.className = "chip-btn";
+      ask.textContent = "Ask Hawkeye";
+      ask.addEventListener("click", () => {
+        setPane("chat");
+        const input = document.getElementById("chatInput");
+        if (input) input.focus();
+      });
+      wrap.appendChild(ask);
+    }
+    return wrap;
+  }
 
   function toast(msg) {
     toastEl.textContent = msg || "";
@@ -25,24 +62,40 @@
     return r.json();
   }
 
-  async function post(path, body) {
-    const r = await fetch(path, {
-      method: "POST",
-      credentials: "same-origin",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json",
-        "X-Autocode-Token": token,
-      },
-      body: JSON.stringify({ ...body, token }),
-    });
-    if (r.status === 401) {
-      location.href = "/login";
-      throw new Error("login required");
+  async function post(path, body, opts) {
+    const timeoutMs = opts && opts.timeoutMs;
+    const ctrl = timeoutMs ? new AbortController() : null;
+    let timer = null;
+    if (ctrl && timeoutMs) {
+      timer = setTimeout(() => ctrl.abort(), timeoutMs);
     }
-    const data = await r.json().catch(() => ({}));
-    if (!r.ok || data.ok === false) throw new Error(data.error || `${path} → ${r.status}`);
-    return data;
+    try {
+      const r = await fetch(path, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "X-Autocode-Token": token,
+        },
+        body: JSON.stringify({ ...body, token }),
+        signal: ctrl ? ctrl.signal : undefined,
+      });
+      if (r.status === 401) {
+        location.href = "/login";
+        throw new Error("login required");
+      }
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || data.ok === false) throw new Error(data.error || `${path} → ${r.status}`);
+      return data;
+    } catch (e) {
+      if (e && e.name === "AbortError") {
+        throw new Error("Hawkeye did not reply in time. Check Account → Machine → Wake Ollama, then send again.");
+      }
+      throw e;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   function ageLabel(sec) {
@@ -86,8 +139,19 @@
     let label = phase;
     if (ctl.abort) { phase = "aborted"; label = "aborting"; }
     else if (ctl.paused) { phase = "paused"; label = "paused"; }
+    const PHASE_LABELS = {
+      idle: "Ready",
+      starting: "Starting",
+      routing: "Routing",
+      running_local: "Local",
+      escalating: "Escalating",
+      paused: "Paused",
+      aborted: "Stopped",
+      aborting: "Stopping",
+      done: "Done",
+    };
     document.getElementById("liveChip").dataset.phase = phase;
-    document.getElementById("phaseLabel").textContent = label;
+    document.getElementById("phaseLabel").textContent = PHASE_LABELS[label] || PHASE_LABELS[phase] || label;
     document.getElementById("statusLede").textContent = phaseSentence(snap);
     document.getElementById("taskVal").textContent =
       [st.task_id, st.task_name].filter(Boolean).join(" — ") || "—";
@@ -138,8 +202,8 @@
     }
     if (note) {
       note.textContent = on
-        ? `Ask Hawkeye to plan, research, or queue work. Local only is on for ${who} — replies stay on the free Jetson model.`
-        : "Ask Hawkeye to plan, research, or queue work. Useful items can seed the Notion board. Local only is per signed-in account.";
+        ? `Local only on for ${who} — replies stay on the Jetson.`
+        : "Plan, research, or drive the Notion board. Local only is per account.";
     }
   }
 
@@ -220,10 +284,21 @@
 
     const pills = document.getElementById("countPills");
     pills.innerHTML = "";
+    const pillOrder = columnOrder(board.kind, counts);
+    const seen = new Set();
+    for (const status of pillOrder) {
+      seen.add(status);
+      const n = counts[status] || 0;
+      const span = document.createElement("span");
+      span.className = "count-pill" + (n ? "" : " is-empty");
+      span.textContent = `${status} ${n}`;
+      pills.appendChild(span);
+    }
     for (const [status, n] of Object.entries(counts)) {
+      if (seen.has(status) || !n) continue;
       const span = document.createElement("span");
       span.className = "count-pill";
-      span.textContent = `${status}: ${n}`;
+      span.textContent = `${status} ${n}`;
       pills.appendChild(span);
     }
 
@@ -273,10 +348,8 @@
         col.appendChild(card);
       }
       if (!colTasks.length) {
-        const empty = document.createElement("p");
-        empty.className = "section-note";
-        empty.textContent = "No tasks";
-        col.appendChild(empty);
+        col.classList.add("is-empty");
+        col.appendChild(emptyColumn(status));
       }
       kanban.appendChild(col);
     }
@@ -325,15 +398,39 @@
     selectedTask = null;
   }
 
+  function renderBoardError(message) {
+    const kanban = document.getElementById("kanban");
+    const meta = document.getElementById("boardMeta");
+    if (meta) meta.textContent = "Board unavailable";
+    if (!kanban) return;
+    kanban.innerHTML = "";
+    const card = document.createElement("div");
+    card.className = "state-card is-error";
+    const title = document.createElement("p");
+    title.className = "state-title";
+    title.textContent = "Could not load the board";
+    const copy = document.createElement("p");
+    copy.className = "state-copy";
+    copy.textContent = message || "Check Connections → Notion, then hit Refresh.";
+    card.append(title, copy);
+    kanban.appendChild(card);
+  }
+
   async function loadBoard() {
     const status = document.getElementById("statusFilter").value || "all";
-    const data = await get(`/api/tasks?board=${encodeURIComponent(currentBoard)}&status=${encodeURIComponent(status)}&limit=100`);
-    boardCache = data;
-    renderKanban(data);
-    // Sync tab selection
-    document.querySelectorAll(".board-tab").forEach((btn) => {
-      btn.setAttribute("aria-selected", btn.dataset.board === currentBoard ? "true" : "false");
-    });
+    const meta = document.getElementById("boardMeta");
+    if (meta && !boardCache) meta.textContent = "Loading Notion board…";
+    try {
+      const data = await get(`/api/tasks?board=${encodeURIComponent(currentBoard)}&status=${encodeURIComponent(status)}&limit=100`);
+      boardCache = data;
+      renderKanban(data);
+      document.querySelectorAll(".board-tab").forEach((btn) => {
+        btn.setAttribute("aria-selected", btn.dataset.board === currentBoard ? "true" : "false");
+      });
+    } catch (e) {
+      if (!boardCache) renderBoardError(String(e.message || e));
+      throw e;
+    }
   }
 
   async function loadProjects() {
@@ -360,8 +457,8 @@
         const empty = document.createElement("p");
         empty.className = "inbox-empty";
         empty.textContent = data.enabled
-          ? "No messages yet."
-          : "Enable mail in .env, then point Resend webhook to /api/webhooks/resend.";
+          ? "Inbox is connected — nothing waiting yet."
+          : "Mail is off. Connect Resend under Account → Connections, or enable HAWKEYE_MAIL_ENABLED.";
         list.appendChild(empty);
         return;
       }
@@ -371,7 +468,7 @@
     } catch (e) {
       list.innerHTML = "";
       const err = document.createElement("p");
-      err.className = "inbox-empty";
+      err.className = "inbox-empty state-card is-error";
       err.textContent = String(e.message || e);
       list.appendChild(err);
     }
@@ -487,6 +584,14 @@
   document.getElementById("refreshBoard").addEventListener("click", () => {
     loadBoard().then(() => toast("Board refreshed")).catch((e) => toast(String(e.message || e)));
   });
+  const askHawkeye = document.getElementById("askHawkeye");
+  if (askHawkeye) {
+    askHawkeye.addEventListener("click", () => {
+      setPane("chat");
+      const input = document.getElementById("chatInput");
+      if (input) input.focus();
+    });
+  }
   document.getElementById("drawerClose").addEventListener("click", closeDrawer);
   document.getElementById("taskDrawer").addEventListener("click", (ev) => {
     if (ev.target.id === "taskDrawer") closeDrawer();
@@ -568,24 +673,98 @@
 
   let chatHistory = [];
 
-  function appendChat(role, text) {
+  function friendlyProvider(raw, escalated) {
+    const p = String(raw || "").trim();
+    if (!p || p.toLowerCase() === "none") return escalated ? "cloud" : "Jetson";
+    return p;
+  }
+
+  function setChatStatus(text, kind) {
+    const el = document.getElementById("chatStatus");
+    if (!el) return;
+    if (!text) {
+      el.hidden = true;
+      el.textContent = "";
+      el.removeAttribute("data-kind");
+      return;
+    }
+    el.hidden = false;
+    el.textContent = text;
+    if (kind) el.dataset.kind = kind;
+    else el.removeAttribute("data-kind");
+  }
+
+  function hideChatEmpty() {
+    const empty = document.getElementById("chatEmpty");
+    if (empty) empty.hidden = true;
+  }
+
+  function appendChat(role, text, meta) {
     const log = document.getElementById("chatLog");
-    if (!log) return;
-    const line = document.createElement("div");
-    line.className = `chat-line ${role}`;
+    if (!log) return null;
+    hideChatEmpty();
+    const row = document.createElement("article");
+    row.className = `chat-msg ${role}`;
+    if (meta && meta.pending) row.classList.add("pending");
+    if (meta && meta.error) row.classList.add("is-error");
     const who = role === "you" ? "You" : role === "local" ? "Hawkeye" : role === "cloud" ? "Cloud" : "System";
-    line.textContent = `${who}: ${text}`;
-    log.appendChild(line);
+    const head = document.createElement("div");
+    head.className = "chat-msg-head";
+    const name = document.createElement("span");
+    name.className = "chat-msg-who";
+    name.textContent = who;
+    head.appendChild(name);
+    if (meta && (meta.provider || meta.label)) {
+      const chip = document.createElement("span");
+      chip.className = "chat-chip";
+      chip.textContent = meta.label || meta.provider;
+      head.appendChild(chip);
+    }
+    const body = document.createElement("p");
+    body.className = "chat-msg-body";
+    body.textContent = text;
+    row.append(head, body);
+    log.appendChild(row);
     log.scrollTop = log.scrollHeight;
+    if (meta && meta.pending) return row;
     if (role === "you") {
       chatHistory.push({ role: "user", content: text });
     } else if (role === "local" || role === "cloud") {
       chatHistory.push({ role: "assistant", content: text });
     }
     if (chatHistory.length > 24) chatHistory = chatHistory.slice(-24);
+    return row;
+  }
+
+  function removePendingChat() {
+    document.querySelectorAll(".chat-msg.pending").forEach((el) => el.remove());
+  }
+
+  function resetChatSend(sendBtn) {
+    if (!sendBtn) return;
+    sendBtn.disabled = false;
+    sendBtn.textContent = "Send";
   }
 
   const chatForm = document.getElementById("chatForm");
+  const chatInput = document.getElementById("chatInput");
+  if (chatInput) {
+    chatInput.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) {
+        ev.preventDefault();
+        if (chatForm) chatForm.requestSubmit();
+      }
+    });
+  }
+  const chatSuggestions = document.getElementById("chatSuggestions");
+  if (chatSuggestions && chatInput) {
+    chatSuggestions.addEventListener("click", (ev) => {
+      const btn = ev.target.closest("[data-suggest]");
+      if (!btn) return;
+      chatInput.value = btn.getAttribute("data-suggest") || "";
+      chatInput.focus();
+    });
+  }
   if (chatForm) {
     chatForm.addEventListener("submit", async (ev) => {
       ev.preventDefault();
@@ -595,35 +774,72 @@
       if (!msg) return;
       const sendBtn = document.getElementById("chatSend");
       sendBtn.disabled = true;
+      sendBtn.textContent = "Sending…";
       // Prior turns only — server adds the current message itself.
       const prior = chatHistory.slice();
       appendChat("you", msg);
       input.value = "";
+      appendChat("system", "Hawkeye is thinking…", { label: "Pending", pending: true });
+      setChatStatus("Thinking…", "pending");
+      const waitHint = setTimeout(() => {
+        setChatStatus("Still waiting on Jetson…", "pending");
+      }, 8000);
       try {
         const data = await post("/api/chat", {
           message: msg,
           seed_notion: !!(seed && seed.checked),
           history: prior,
-        });
-        if (data.local_reply) appendChat("local", data.local_reply);
-        if (data.escalated && data.cloud_reply) appendChat("cloud", `[${data.provider || "cloud"}] ${data.cloud_reply}`);
+        }, { timeoutMs: 25000 });
+        removePendingChat();
+        const localFailed = !!(data.local_error);
+        const providerKey = String(data.provider || "").toLowerCase();
+        const cloudFailed = !!(data.cloud_error) || providerKey === "error" || providerKey === "none";
+        if (localFailed) {
+          appendChat("system", data.local_error, { label: "Ollama", error: true });
+        } else if (data.local_reply) {
+          appendChat("local", data.local_reply, { label: "Jetson" });
+        }
+        if (data.escalated && (data.cloud_reply || data.cloud_error)) {
+          if (cloudFailed) {
+            appendChat("system", data.cloud_error || data.cloud_reply, { label: "Cloud", error: true });
+          } else {
+            const provider = friendlyProvider(data.provider, true);
+            appendChat("cloud", data.cloud_reply, { provider, label: provider });
+          }
+        }
         if (data.seeded_task) {
-          appendChat("system", `Added to Notion: ${data.seeded_task}`);
+          appendChat("system", `Added to the Notion board: ${data.seeded_task}`, { label: "Board" });
         }
         if (data.seeded_task || (data.pm && data.pm.ok && (data.pm.action === "update" || data.pm.action === "create"))) {
           loadBoard().catch(() => {});
         }
-        toast(data.escalated ? `Escalated to ${data.provider || "premium"}` : "Hawkeye replied");
+        if (localFailed && !data.escalated) {
+          setChatStatus("Ollama unavailable", "error");
+          toast(data.local_error);
+        } else if (data.escalated) {
+          const provider = friendlyProvider(data.provider, true);
+          setChatStatus(cloudFailed ? "Cloud unavailable" : `Escalated · ${provider}`, cloudFailed ? "error" : "escalate");
+          toast(cloudFailed ? (data.cloud_error || "Cloud escalate unavailable") : `Escalated to ${provider}`);
+        } else {
+          setChatStatus("Local · Jetson", "local");
+          toast("Hawkeye replied");
+        }
       } catch (e) {
-        appendChat("system", String(e.message || e));
+        removePendingChat();
+        appendChat("system", String(e.message || e), { label: "Error", error: true });
+        setChatStatus("Could not reply", "error");
         toast(String(e.message || e));
       } finally {
-        sendBtn.disabled = false;
+        clearTimeout(waitHint);
+        resetChatSend(sendBtn);
       }
     });
   }
 
-  loadProjects().catch((e) => toast(String(e.message || e)));
+  loadProjects().catch((e) => {
+    toast(String(e.message || e));
+    renderBoardError(String(e.message || e));
+  });
   refreshOps().catch((e) => toast(String(e.message || e)));
   loadLocalOnlySetting().catch(() => {});
   loadInbox().catch(() => {});
@@ -968,6 +1184,46 @@
     btn.addEventListener("click", () => switchAccountTab(btn.dataset.tab));
   });
 
+  function setPane(name) {
+    const pane = name === "board" || name === "inbox" ? name : "chat";
+    document.body.dataset.pane = pane;
+    document.querySelectorAll(".pane-btn").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.paneView === pane);
+    });
+    document.querySelectorAll(".app-nav-link").forEach((link) => {
+      link.classList.toggle("is-active", link.dataset.paneView === pane);
+    });
+    try { sessionStorage.setItem("hawkeye-pane", pane); } catch (_) { /* ignore */ }
+    if (pane === "chat") {
+      const input = document.getElementById("chatInput");
+      if (input && window.matchMedia("(max-width: 980px)").matches) {
+        input.focus({ preventScroll: true });
+      }
+    }
+  }
+
+  document.querySelectorAll("[data-pane-view]").forEach((el) => {
+    el.addEventListener("click", (ev) => {
+      const pane = el.getAttribute("data-pane-view");
+      if (!pane) return;
+      setPane(pane);
+      if (el.tagName === "BUTTON") ev.preventDefault();
+    });
+  });
+
+  try {
+    const q = new URLSearchParams(location.search).get("pane");
+    if (q) {
+      setPane(q);
+    } else if (window.matchMedia("(max-width: 980px)").matches) {
+      // Phone: never land on a long board scroll. ?pane= still wins.
+      setPane("chat");
+    } else {
+      const stored = sessionStorage.getItem("hawkeye-pane");
+      if (stored) setPane(stored);
+    }
+  } catch (_) { /* ignore */ }
+
   document.querySelectorAll(".view-tab").forEach((btn) => {
     btn.addEventListener("click", () => {
       document.querySelectorAll(".view-tab").forEach((b) => b.classList.toggle("is-active", b === btn));
@@ -977,6 +1233,10 @@
       document.getElementById("boardTabs").hidden = mine;
       document.getElementById("statusFilter").hidden = mine;
       document.getElementById("mineProjects").hidden = !mine;
+      const banner = document.getElementById("pmBanner");
+      if (banner) {
+        banner.hidden = mine || !(boardCache && (boardCache.offline || boardCache.warning));
+      }
       if (mine) {
         get("/api/account/projects").then((d) => renderMineProjects(d.projects || [])).catch((e) => toast(String(e.message || e)));
       }
@@ -1157,6 +1417,7 @@
       const btn = document.getElementById("logoutBtn");
       const accountBtn = document.getElementById("accountBtn");
       const messagesBtn = document.getElementById("messagesBtn");
+      const connectionsBtn = document.getElementById("connectionsBtn");
       if (btn && auth.private_mode) {
         btn.hidden = false;
         btn.addEventListener("click", async () => {
@@ -1178,6 +1439,10 @@
       if (messagesBtn && (auth.authed || !auth.private_mode)) {
         messagesBtn.hidden = false;
         messagesBtn.addEventListener("click", () => openAccount("messages"));
+      }
+      if (connectionsBtn && (auth.authed || !auth.private_mode)) {
+        connectionsBtn.hidden = false;
+        connectionsBtn.addEventListener("click", () => openAccount("connections"));
       }
       if (auth.profile && !auth.profile.profile_complete && auth.authed) {
         openAccount("profile");

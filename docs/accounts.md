@@ -10,6 +10,13 @@ Each `@brownhawke.engineering` login has **their own**:
 
 Do all of this from the **online UI** at `https://hawkeye.brownhawke.engineering` (or SSH/Tailscale to `:8787`). Machine `.env` remains a fallback for overnight autopilot when no per-user secret is set.
 
+**Login / adding a second user (Mark):** [login.md](login.md) — full path (Cloudflare Tunnel → Hawkeye password → session cookie), failure modes, and Jetson reset without putting passwords in git.
+
+```bash
+./scripts/hawkeye accounts set-password --email mark@brownhawke.engineering
+./scripts/hawkeye accounts list
+```
+
 ## Profile
 
 On first sign-in (or **Account → Profile**), set:
@@ -68,7 +75,7 @@ HAWKEYE_UPDATE_BRANCH=main
 **Account → Projects** (and the **My projects** board tab):
 
 - Create a project owned by you  
-- Share with any coworker who already has a Hawkeye login (`set_work_user.py`)  
+- Share with any coworker who already has a Hawkeye login (`./scripts/hawkeye accounts set-password`)  
 - Roles: `owner` | `editor` | `viewer`  
 
 This is separate from Notion boards (`/api/projects`). Notion boards use your Connection Notion token (or machine `NOTION_TOKEN`); Hawkeye projects are membership-gated in-app.

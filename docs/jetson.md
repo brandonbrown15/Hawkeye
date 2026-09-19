@@ -88,8 +88,14 @@ sudo tailscale up
 # → http://<tailscale-ip>:8787/
 ```
 
-Login: work email `@brownhawke.engineering` + password from `config/users.json`  
-(`python3 scripts/set_work_user.py --email brandon@brownhawke.engineering --password '…'`).
+Login: work email `@brownhawke.engineering` + password hash in `config/users.json`.  
+Reset without putting the secret in git / shell history:
+
+```bash
+./scripts/hawkeye accounts set-password --email mark@brownhawke.engineering
+```
+
+Full login path + Mark runbook: [login.md](login.md).
 
 ### Autostart on boot
 ```bash

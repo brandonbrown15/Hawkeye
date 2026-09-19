@@ -68,7 +68,7 @@ ssh -L 8787:127.0.0.1:8787 jetson
 ### Option C — Public domain (Hawkeye private)
 
 Canonical host: **`https://hawkeye.brownhawke.engineering`** (subdomain of BrownHawke.engineering).  
-Use login + Cloudflare Tunnel. See **[hawkeye.md](hawkeye.md)**.
+Use login + Cloudflare Tunnel. See **[hawkeye.md](hawkeye.md)** and **[login.md](login.md)**.
 
 ```bash
 AUTOCODE_PRIVATE_MODE=1
