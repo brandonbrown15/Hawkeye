@@ -130,6 +130,41 @@ class AccountsCollabTests(unittest.TestCase):
         self.assertEqual(notion_client.resolve_notion_token(), "ntn_machine_env")
         del os.environ["NOTION_TOKEN"]
 
+    def test_connection_placeholders_are_per_field(self) -> None:
+        connections.set_connection(
+            "brandon@brownhawke.engineering",
+            "cursor",
+            secrets={"api_key": "key_only_not_webhook"},
+        )
+        listed = connections.list_connections("brandon@brownhawke.engineering")
+        cursor = listed["providers"]["cursor"]
+        self.assertEqual(cursor["status"], "connected")
+        self.assertEqual(cursor["saved_fields"], ["api_key"])
+        self.assertNotIn("webhook_url", cursor["saved_fields"])
+        self.assertNotIn("webhook_token", cursor["saved_fields"])
+        self.assertEqual(cursor["unreadable_fields"], [])
+
+    def test_unreadable_after_memory_key_rotate(self) -> None:
+        connections.set_connection(
+            "brandon@brownhawke.engineering",
+            "cursor",
+            secrets={"api_key": "key_before_rotate"},
+        )
+        os.environ["HAWKEYE_MEMORY_KEY"] = "rotated-key-that-cannot-decrypt"
+        listed = connections.list_connections("brandon@brownhawke.engineering")
+        cursor = listed["providers"]["cursor"]
+        self.assertEqual(cursor["status"], "unreadable")
+        self.assertEqual(cursor["saved_fields"], [])
+        self.assertIn("api_key", cursor["unreadable_fields"])
+        self.assertEqual(
+            connections.unreadable_secret_labels(
+                email="brandon@brownhawke.engineering",
+                providers=("cursor",),
+            ),
+            ["cursor.api_key"],
+        )
+        os.environ["HAWKEYE_MEMORY_KEY"] = "test-secrets-key-for-unit-tests"
+
     def test_provider_catalog_covers_integrations(self) -> None:
         for pid in (
             "cloudflare",

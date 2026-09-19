@@ -38,10 +38,19 @@ class UiHelpersTests(unittest.TestCase):
             "CURSOR_WEBHOOK_URL",
             "CURSOR_API_KEY",
             "GROK_BOT_WEBHOOK_URL",
+            "XAI_API_KEY",
+            "ANTHROPIC_API_KEY",
+            "OPENROUTER_API_KEY",
+            "AUTOCODE_DISABLE_METERED_GROK",
+            "AUTOCODE_DELEGATE_TIMEOUT_SEC",
             "HAWKEYE_USERS_FILE",
             "HAWKEYE_ALLOWED_EMAIL_DOMAIN",
             "HAWKEYE_USERS_JSON",
             "HAWKEYE_RUNTIME_FILE",
+            "HAWKEYE_ACCOUNTS_DIR",
+            "HAWKEYE_MEMORY_KEY",
+            "AUTOCODE_CURSOR_DELEGATE_CMD",
+            "AUTOCODE_GROK_DELEGATE_CMD",
         )}
         for k in self._env:
             os.environ.pop(k, None)
@@ -88,6 +97,59 @@ class UiHelpersTests(unittest.TestCase):
 
         out = ui_server.apply_control("skip")
         self.assertFalse(out["ok"])
+
+    def test_readiness_counts_account_connections_without_contextvar(self) -> None:
+        """Live bug: checklist skip despite Connections save.
+
+        has_secret() used ContextVar only. readiness(user=) never passed email,
+        and 'stub' in AUTOCODE_*_DELEGATE_CMD forced ok=False even with a vault URL.
+        """
+        from ui import accounts, connections
+
+        os.environ["HAWKEYE_ACCOUNTS_DIR"] = str(self.tmp / "accounts")
+        os.environ["HAWKEYE_MEMORY_KEY"] = "ready-secret-key"
+        os.environ["AUTOCODE_LOCAL_ONLY"] = "0"
+        os.environ["AUTOCODE_CURSOR_DELEGATE_CMD"] = "./scripts/delegate_cursor_stub.sh"
+        os.environ["AUTOCODE_GROK_DELEGATE_CMD"] = "./scripts/delegate_grok_stub.sh"
+        os.environ.pop("CURSOR_WEBHOOK_URL", None)
+        os.environ.pop("CURSOR_API_KEY", None)
+        os.environ.pop("GROK_BOT_WEBHOOK_URL", None)
+        accounts.clear_cache()
+        brandon = "brandon@brownhawke.engineering"
+        connections.set_connection(
+            brandon,
+            "cursor",
+            secrets={
+                "api_key": "key",
+                "webhook_url": "https://example.invalid/cursor",
+                "webhook_token": "tok",
+            },
+        )
+        connections.set_connection(
+            brandon,
+            "grok",
+            secrets={
+                "webhook_url": "https://example.invalid/grok",
+                "webhook_token": "gtok",
+                "api_key": "xai",
+            },
+        )
+        connections.set_request_user(None)
+        with mock.patch.object(ui_server.health_mod, "check_local_stack") as chk:
+            chk.return_value = mock.Mock(
+                hermes_ok=True,
+                ollama_ok=True,
+                ollama_model="coder-64k",
+                details=[],
+            )
+            anon = ui_server.readiness()
+            signed = ui_server.readiness(user=brandon)
+        by_anon = {c["id"]: c for c in anon["checks"]}
+        by_user = {c["id"]: c for c in signed["checks"]}
+        self.assertFalse(by_anon["cursor"]["ok"])
+        self.assertFalse(by_anon["grok"]["ok"])
+        self.assertTrue(by_user["cursor"]["ok"])
+        self.assertTrue(by_user["grok"]["ok"])
 
     def test_readiness_shape(self) -> None:
         with mock.patch.object(ui_server.health_mod, "check_local_stack") as chk:
@@ -415,6 +477,28 @@ class UiHelpersTests(unittest.TestCase):
         self.assertEqual(out["provider"], "Cursor")
         self.assertEqual(out["cloud_reply"], "premium plan")
         wh.assert_called_once()
+
+    def test_cloud_chat_none_explains_metered_grok_block(self) -> None:
+        os.environ["XAI_API_KEY"] = "xai-saved"
+        os.environ["AUTOCODE_DISABLE_METERED_GROK"] = "1"
+        os.environ.pop("CURSOR_API_KEY", None)
+        os.environ.pop("CURSOR_WEBHOOK_URL", None)
+        os.environ.pop("GROK_BOT_WEBHOOK_URL", None)
+        os.environ.pop("ANTHROPIC_API_KEY", None)
+        os.environ.pop("OPENROUTER_API_KEY", None)
+        reply, provider = ui_server._cloud_chat("hard", "ESCALATE: too hard")
+        self.assertEqual(provider, "none")
+        self.assertIn("AUTOCODE_DISABLE_METERED_GROK", reply)
+        self.assertIn("No usable premium provider", reply)
+
+    def test_cloud_chat_none_says_failed_not_unconfigured(self) -> None:
+        os.environ["CURSOR_WEBHOOK_URL"] = "http://127.0.0.1:1/missing-bridge"
+        os.environ.pop("CURSOR_API_KEY", None)
+        os.environ["AUTOCODE_DELEGATE_TIMEOUT_SEC"] = "1"
+        reply, provider = ui_server._cloud_chat("hard", "ESCALATE: too hard")
+        self.assertEqual(provider, "none")
+        self.assertIn("Premium provider(s) failed", reply)
+        self.assertNotIn("No usable premium provider", reply)
 
     def test_chat_escalates_to_cursor_api_key(self) -> None:
         os.environ["CURSOR_API_KEY"] = "test-cursor-key"

@@ -221,7 +221,11 @@ def list_connections(email: str) -> dict[str, Any]:
         row = (data.get("providers") or {}).get(pid) or {}
         secrets = row.get("secrets") if isinstance(row.get("secrets"), dict) else {}
         connect_fields = meta.get("connect_fields") or meta["fields"]
-        connected = any(bool(secrets.get(f)) for f in connect_fields)
+        saved_fields, unreadable_fields = _classify_vault_fields(secrets, meta["fields"])
+        # Connected only if a connect-field actually decrypts. Blob presence alone
+        # used to mark Connected while chat escalate saw empty secrets ([none]).
+        connected = any(f in saved_fields for f in connect_fields)
+        unreadable = (not connected) and any(f in unreadable_fields for f in connect_fields)
         # Show machine-env fallback as "machine" so operators know autopilot still works.
         machine = False
         if not connected:
@@ -229,7 +233,14 @@ def list_connections(email: str) -> dict[str, Any]:
                 if _env_fallback(pid, field):
                     machine = True
                     break
-        status = "connected" if connected else ("machine" if machine else "disconnected")
+        if connected:
+            status = "connected"
+        elif unreadable:
+            status = "unreadable"
+        elif machine:
+            status = "machine"
+        else:
+            status = "disconnected"
         out[pid] = {
             "id": pid,
             "label": meta["label"],
@@ -240,6 +251,8 @@ def list_connections(email: str) -> dict[str, Any]:
             "account_label": str(row.get("account_label") or ""),
             "updated_at": row.get("updated_at"),
             "has_secret": connected,
+            "saved_fields": saved_fields,
+            "unreadable_fields": unreadable_fields,
             "machine_fallback": machine,
             "encryption": "on" if _secrets_key() else "off",
         }
@@ -307,6 +320,42 @@ def get_secret(email: str, provider: str, field: str) -> str:
         row = (data.get("providers") or {}).get(provider) or {}
         secrets = row.get("secrets") if isinstance(row.get("secrets"), dict) else {}
         return _decrypt_secret(str(secrets.get(field) or ""))
+
+
+def _classify_vault_fields(secrets: dict[str, Any], fields: list[str]) -> tuple[list[str], list[str]]:
+    """Split vault blobs into decryptable vs ciphertext we cannot read."""
+    saved: list[str] = []
+    unreadable: list[str] = []
+    for field in fields:
+        blob = secrets.get(field)
+        if not blob:
+            continue
+        if _decrypt_secret(str(blob)):
+            saved.append(field)
+        else:
+            unreadable.append(field)
+    return saved, unreadable
+
+
+def unreadable_secret_labels(
+    *,
+    email: str | None = None,
+    providers: tuple[str, ...] | None = None,
+) -> list[str]:
+    """Labels like cursor.api_key when a vault blob exists but will not decrypt."""
+    email = ui_auth.normalize_email(email) if email else get_request_user()
+    if not email:
+        return []
+    labels: list[str] = []
+    with _LOCK:
+        data = _load(email)
+    for pid in providers or PROVIDERS:
+        meta = PROVIDER_META.get(pid) or {}
+        row = (data.get("providers") or {}).get(pid) or {}
+        secrets = row.get("secrets") if isinstance(row.get("secrets"), dict) else {}
+        _, unread = _classify_vault_fields(secrets, list(meta.get("fields") or secrets.keys()))
+        labels.extend(f"{pid}.{field}" for field in unread)
+    return labels
 
 
 def _env_fallback(provider: str, field: str) -> str:

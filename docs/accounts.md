@@ -49,7 +49,8 @@ Encrypt at rest with `HAWKEYE_MEMORY_KEY` or dedicated `HAWKEYE_SECRETS_KEY` (se
 | `HAWKEYE_MEMORY_KEY` | **Required** before saving Connections secrets (encrypts at rest) |
 | Auto-update branch | `HAWKEYE_UPDATE_BRANCH` (default: **main**) |
 | Pull every 5 min | `HAWKEYE_UPDATE_ENABLED` + `hawkeye-update.timer` |
-| Force update now | Runs `hawkeye_self_update.sh --force` |
+| Force update now | Runs `hawkeye_self_update.sh --force` (will **not** pull if the tree is dirty) |
+| Discard local changes and update | Admin-only `hawkeye_self_update.sh --reset` — `git checkout -B $BRANCH origin/$BRANCH`, keeps `.env` |
 
 ```bash
 HAWKEYE_MEMORY_KEY=…long passphrase…

@@ -979,6 +979,7 @@ h2 { font-size: 1.2rem; }
 .conn-status.on { color: #1f6b3a; }
 .conn-status.off { color: #5a6a82; }
 .conn-status.machine { color: #8a6d1d; }
+.conn-status.unreadable { color: #a33b1a; }
 .inline-check {
   display: flex;
   align-items: center;

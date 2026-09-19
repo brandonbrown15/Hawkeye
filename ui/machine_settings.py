@@ -210,7 +210,9 @@ def status(email: str | None = None) -> dict[str, Any]:
         "autostart": update_status(),
         "hint": (
             "Add Cloudflare Tunnel install token, encryption key, and auto-update "
-            "branch here. Use Wake Ollama if chat says connection refused. "
+            "branch here. Force update will not pull a dirty tree — use Discard "
+            "local changes to reset to origin/main (.env stays). "
+            "Use Wake Ollama if chat says connection refused. "
             "Per-user API keys live under Connections."
         ),
     }
@@ -287,22 +289,35 @@ def apply(email: str, updates: dict[str, Any]) -> dict[str, Any]:
         actions.append("tunnel_restart_ok" if ok else f"tunnel_restart_fail:{detail[:120]}")
 
     force_update = str(updates.get("force_update") or "").lower() in ("1", "true", "yes")
-    if force_update:
+    reset_to_remote = str(
+        updates.get("reset_to_remote") or updates.get("discard_local") or ""
+    ).lower() in ("1", "true", "yes")
+    update_log = ""
+    if force_update or reset_to_remote:
         script = ROOT / "scripts" / "hawkeye_self_update.sh"
         if not script.is_file():
             raise ValueError("hawkeye_self_update.sh missing — pull auto-update scripts first")
+        flag = "--reset" if reset_to_remote else "--force"
         try:
             proc = subprocess.run(
-                ["bash", str(script), "--force"],
+                ["bash", str(script), flag],
                 cwd=str(ROOT),
                 capture_output=True,
                 text=True,
                 timeout=600,
                 check=False,
             )
+            update_log = ((proc.stdout or "") + (proc.stderr or "")).strip()
             actions.append(
-                "force_update_ok" if proc.returncode == 0 else f"force_update_fail:{proc.returncode}"
+                f"{'reset_to_remote' if reset_to_remote else 'force_update'}"
+                + ("_ok" if proc.returncode == 0 else f"_fail:{proc.returncode}")
             )
+            if proc.returncode != 0:
+                raise ValueError(
+                    f"{flag} failed ({proc.returncode}): {update_log[-1200:] or 'no script output'}"
+                )
+        except ValueError:
+            raise
         except (OSError, subprocess.TimeoutExpired) as e:
             raise ValueError(f"force update failed: {e}") from e
 
@@ -320,4 +335,6 @@ def apply(email: str, updates: dict[str, Any]) -> dict[str, Any]:
     out["updated_at"] = time.time()
     if ollama_result is not None:
         out["ollama"] = ollama_result
+    if update_log:
+        out["update_log"] = update_log
     return out
