@@ -8,6 +8,31 @@
 
   const BUILD_STATUSES = ["Ready", "Running", "Needs review", "Blocked", "Backlog", "Done"];
   const ROSE_STATUSES = ["Now", "Next", "Blocked", "Done", "Parked"];
+  const EMPTY_COLS = {
+    Ready: ["Nothing Ready", "Ask Hawkeye to queue the next task."],
+    Running: ["Idle", "No task is in flight."],
+    "Needs review": ["Clear", "Nothing waiting for review."],
+    Blocked: ["No blockers", "Nothing stuck right now."],
+    Backlog: ["Empty backlog", "Park ideas from chat when they come up."],
+    Done: ["Nothing done yet", "Finished work will land here."],
+    Now: ["Nothing Now", "Promote a task when you start it."],
+    Next: ["Nothing Next", "Stage the following piece of work."],
+    Parked: ["Nothing parked", "Set aside work that can wait."],
+  };
+
+  function emptyColumn(status) {
+    const wrap = document.createElement("div");
+    wrap.className = "col-empty";
+    const title = document.createElement("p");
+    title.className = "col-empty-title";
+    const copy = document.createElement("p");
+    copy.className = "col-empty-copy";
+    const bits = EMPTY_COLS[status] || ["Empty", "Nothing in this column."];
+    title.textContent = bits[0];
+    copy.textContent = bits[1];
+    wrap.append(title, copy);
+    return wrap;
+  }
 
   function toast(msg) {
     toastEl.textContent = msg || "";
@@ -149,8 +174,8 @@
     }
     if (note) {
       note.textContent = on
-        ? `Ask Hawkeye to plan, research, or queue work. Local only is on for ${who} — replies stay on the free Jetson model.`
-        : "Ask Hawkeye to plan, research, or queue work. Useful items can seed the Notion board. Local only is per signed-in account.";
+        ? `Local only on for ${who} — replies stay on the Jetson.`
+        : "Plan, research, or queue work. Local only is per account.";
     }
   }
 
@@ -232,9 +257,10 @@
     const pills = document.getElementById("countPills");
     pills.innerHTML = "";
     for (const [status, n] of Object.entries(counts)) {
+      if (!n) continue;
       const span = document.createElement("span");
       span.className = "count-pill";
-      span.textContent = `${status}: ${n}`;
+      span.textContent = `${status} ${n}`;
       pills.appendChild(span);
     }
 
@@ -284,10 +310,7 @@
         col.appendChild(card);
       }
       if (!colTasks.length) {
-        const empty = document.createElement("p");
-        empty.className = "col-empty";
-        empty.textContent = "Nothing in this column.";
-        col.appendChild(empty);
+        col.appendChild(emptyColumn(status));
       }
       kanban.appendChild(col);
     }
@@ -1080,6 +1103,38 @@
   document.querySelectorAll(".account-tab").forEach((btn) => {
     btn.addEventListener("click", () => switchAccountTab(btn.dataset.tab));
   });
+
+  function setPane(name) {
+    const pane = name === "board" || name === "inbox" ? name : "chat";
+    document.body.dataset.pane = pane;
+    document.querySelectorAll(".pane-btn").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.dataset.paneView === pane);
+    });
+    document.querySelectorAll(".app-nav-link").forEach((link) => {
+      link.classList.toggle("is-active", link.dataset.paneView === pane);
+    });
+    try { sessionStorage.setItem("hawkeye-pane", pane); } catch (_) { /* ignore */ }
+    if (pane === "chat") {
+      const input = document.getElementById("chatInput");
+      if (input && window.matchMedia("(max-width: 980px)").matches) {
+        input.focus({ preventScroll: true });
+      }
+    }
+  }
+
+  document.querySelectorAll("[data-pane-view]").forEach((el) => {
+    el.addEventListener("click", (ev) => {
+      const pane = el.getAttribute("data-pane-view");
+      if (!pane) return;
+      setPane(pane);
+      if (el.tagName === "BUTTON") ev.preventDefault();
+    });
+  });
+
+  try {
+    const saved = sessionStorage.getItem("hawkeye-pane");
+    if (saved) setPane(saved);
+  } catch (_) { /* ignore */ }
 
   document.querySelectorAll(".view-tab").forEach((btn) => {
     btn.addEventListener("click", () => {

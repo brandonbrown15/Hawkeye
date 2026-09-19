@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@400;700&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/app.css" />
 </head>
-<body class="app">
+<body class="app" data-pane="chat">
   <div class="atmosphere" aria-hidden="true"></div>
   <a class="skip-link" href="#workspace">Skip to workspace</a>
 
@@ -29,9 +29,9 @@
       </div>
     </div>
     <nav class="app-nav" aria-label="Primary">
-      <a class="app-nav-link" href="#notionKanban">Boards</a>
-      <a class="app-nav-link" href="#chatHeading">Chat</a>
-      <a class="app-nav-link" href="#inboxHeading">Inbox</a>
+      <a class="app-nav-link" href="#notionKanban" data-pane-view="board">Boards</a>
+      <a class="app-nav-link" href="#chatHeading" data-pane-view="chat">Chat</a>
+      <a class="app-nav-link" href="#inboxHeading" data-pane-view="inbox">Inbox</a>
     </nav>
     <div class="header-actions">
       <div class="live-chip" id="liveChip" data-phase="idle">
@@ -189,7 +189,7 @@
         <header class="chat-head">
           <div>
             <h2 id="chatHeading">Talk to Hawkeye</h2>
-            <p class="section-note" id="chatNote">Ask Hawkeye to plan, research, or queue work. Useful items can seed the Notion board. Local only is per signed-in account.</p>
+            <p class="section-note" id="chatNote">Plan, research, or queue work. Local only is per account.</p>
           </div>
           <p class="chat-status" id="chatStatus" hidden></p>
         </header>
@@ -279,6 +279,12 @@
       </section>
     </details>
   </main>
+
+  <nav class="pane-switch" aria-label="Workspace">
+    <button type="button" class="pane-btn" data-pane-view="board">Board</button>
+    <button type="button" class="pane-btn is-active" data-pane-view="chat">Chat</button>
+    <button type="button" class="pane-btn" data-pane-view="inbox">Inbox</button>
+  </nav>
 
   <footer class="foot">
     <p>BrownHawke Engineering · {{PRODUCT}} · Notion-backed team PM</p>
