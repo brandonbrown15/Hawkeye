@@ -274,12 +274,22 @@ def credentials_ready() -> bool:
     return bool(load_users())
 
 
-def _reset_hint(email: str | None = None) -> str:
-    who = email or f"you@{allowed_email_domain()}"
+def public_support_hint() -> str:
+    """Safe copy for the public login page and unauthenticated API errors.
+
+    Must never include Jetson shell commands, unit names, or filesystem paths.
+    Admins reset passwords on the box using docs/login.md — not this string.
+    """
     return (
-        "On the Jetson (no password in git): "
-        f"./scripts/hawkeye accounts set-password --email {who}"
+        "Email enquire@brownhawke.engineering or Brandon "
+        "(brandon@brownhawke.engineering). There is no self-serve reset."
     )
+
+
+def _reset_hint(email: str | None = None) -> str:
+    # email kept for call-site compatibility; public hints must not echo paths.
+    _ = email
+    return public_support_hint()
 
 
 def diagnose_login(username: str, password: str) -> LoginFailure | None:

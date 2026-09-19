@@ -51,6 +51,7 @@ class UiHelpersTests(unittest.TestCase):
             "HAWKEYE_MEMORY_KEY",
             "AUTOCODE_CURSOR_DELEGATE_CMD",
             "AUTOCODE_GROK_DELEGATE_CMD",
+            "HAWKEYE_CHAT_OLLAMA_TIMEOUT_SEC",
         )}
         for k in self._env:
             os.environ.pop(k, None)
@@ -210,6 +211,13 @@ class UiHelpersTests(unittest.TestCase):
             self.assertIn(token, html)
             self.assertIn("localOnlyToggle", html)
             self.assertIn("Local only", html)
+            self.assertIn("connectionsBtn", html)
+            self.assertIn("chatEmpty", html)
+            self.assertIn("chatStatus", html)
+            self.assertIn("Talk to Hawkeye", html)
+            self.assertIn("Engineering command center", html)
+            self.assertIn("pane-switch", html)
+            self.assertIn('data-pane-view="chat"', html)
 
             with request.urlopen(f"http://127.0.0.1:{port}/api/settings", timeout=5) as resp:
                 settings = json.loads(resp.read().decode())
@@ -623,6 +631,96 @@ class UiHelpersTests(unittest.TestCase):
         self.assertIn("Relevant Hawkeye memory", system)
         self.assertIn("Web research", system)
         os.environ.pop("HAWKEYE_EMBED_FORCE_HASH", None)
+
+    def test_chat_timeout_does_not_wake_ollama(self) -> None:
+        os.environ["AUTOCODE_PERSONAL_LOCAL_ONLY"] = "1"
+        with mock.patch.object(
+            ui_server,
+            "_ollama_chat",
+            side_effect=TimeoutError("timed out"),
+        ):
+            with mock.patch("ui.machine_settings.ensure_ollama") as wake:
+                out = ui_server.handle_chat("Hi", seed_notion=False)
+        wake.assert_not_called()
+        self.assertTrue(out.get("local_error"))
+        self.assertFalse(out["escalated"])
+
+    def test_greeting_hi_does_not_escalate_when_ollama_down(self) -> None:
+        os.environ["AUTOCODE_PERSONAL_LOCAL_ONLY"] = "0"
+        os.environ["CURSOR_API_KEY"] = "test-key"
+        with mock.patch.object(
+            ui_server,
+            "_ollama_chat",
+            side_effect=TimeoutError("timed out"),
+        ):
+            with mock.patch.object(ui_server, "_cloud_chat") as cloud:
+                out = ui_server.handle_chat("Hi", seed_notion=False)
+        cloud.assert_not_called()
+        self.assertTrue(out["ok"])
+        self.assertFalse(out["escalated"])
+        self.assertIn("time", (out.get("local_error") or "").lower())
+        self.assertFalse(out.get("cloud_error"))
+
+    def test_greeting_hi_short_local_reply_does_not_escalate(self) -> None:
+        os.environ["AUTOCODE_PERSONAL_LOCAL_ONLY"] = "0"
+        os.environ["CURSOR_API_KEY"] = "test-key"
+        with mock.patch.object(ui_server, "_ollama_chat", return_value="Hello."):
+            with mock.patch.object(ui_server, "_cloud_chat") as cloud:
+                out = ui_server.handle_chat("Hi", seed_notion=False)
+        cloud.assert_not_called()
+        self.assertFalse(out["escalated"])
+        self.assertEqual(out["local_reply"], "Hello.")
+        self.assertFalse(ui_server._should_escalate("Hi", "Hello."))
+
+    def test_chat_ollama_timeout_is_bounded(self) -> None:
+        os.environ.pop("HAWKEYE_CHAT_OLLAMA_TIMEOUT_SEC", None)
+        self.assertEqual(ui_server._chat_ollama_timeout_sec(), 18.0)
+        os.environ["HAWKEYE_CHAT_OLLAMA_TIMEOUT_SEC"] = "120"
+        self.assertEqual(ui_server._chat_ollama_timeout_sec(), 45.0)
+        os.environ["HAWKEYE_CHAT_OLLAMA_TIMEOUT_SEC"] = "2"
+        self.assertEqual(ui_server._chat_ollama_timeout_sec(), 5.0)
+        os.environ["HAWKEYE_CHAT_OLLAMA_TIMEOUT_SEC"] = "18"
+        self.assertEqual(ui_server._chat_ollama_timeout_sec(), 18.0)
+
+    def test_friendly_local_error_timeout_and_refused(self) -> None:
+        self.assertIn("time", ui_server._friendly_local_error("timed out").lower())
+        self.assertIn("ollama", ui_server._friendly_local_error("[Errno 111] Connection refused").lower())
+        self.assertIn("unavailable", ui_server._friendly_local_error("boom").lower())
+
+    def test_local_fail_hard_ask_still_escalates(self) -> None:
+        os.environ["AUTOCODE_PERSONAL_LOCAL_ONLY"] = "0"
+        os.environ["CURSOR_API_KEY"] = "test-key"
+        with mock.patch.object(
+            ui_server,
+            "_ollama_chat",
+            side_effect=TimeoutError("timed out"),
+        ):
+            with mock.patch.object(
+                ui_server,
+                "_cloud_chat",
+                return_value=("Cloud plan", "Cursor"),
+            ) as cloud:
+                out = ui_server.handle_chat(
+                    "redesign the multi-service architecture",
+                    seed_notion=False,
+                )
+        cloud.assert_called_once()
+        self.assertTrue(out["escalated"])
+        self.assertEqual(out["provider"], "Cursor")
+        self.assertFalse(out.get("cloud_error"))
+
+    def test_chat_client_aborts_and_reenables_send(self) -> None:
+        js = (ROOT / "ui/static/app.js").read_text(encoding="utf-8")
+        self.assertIn("AbortController", js)
+        self.assertIn("timeoutMs", js)
+        self.assertIn("did not reply in time", js)
+        self.assertIn("resetChatSend", js)
+        html = (ROOT / "ui/static/index.html").read_text(encoding="utf-8")
+        self.assertIn("askHawkeye", html)
+        self.assertIn("data-pane=\"chat\"", html)
+        self.assertIn("never land on a long board scroll", js)
+        css = (ROOT / "ui/static/app.css").read_text(encoding="utf-8")
+        self.assertIn("100dvh - 16rem", css)
 
 if __name__ == "__main__":
     unittest.main()
