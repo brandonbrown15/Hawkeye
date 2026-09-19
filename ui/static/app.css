@@ -1301,6 +1301,18 @@ input:focus, select:focus, textarea:focus {
   gap: 0.45rem;
   margin-top: 0.55rem;
 }
+.conn-webhook {
+  margin-top: 0.55rem;
+}
+.conn-webhook-row {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+.conn-webhook-row input {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
 .conn-actions,
 .proj-actions {
   display: flex;

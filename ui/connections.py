@@ -35,6 +35,7 @@ PROVIDERS = (
     "openrouter",
     "brave",
     "telegram",
+    "whatsapp",
 )
 
 # Maps UI fields → machine .env fallbacks (first non-empty wins).
@@ -57,6 +58,27 @@ ENV_FALLBACKS: dict[tuple[str, str], tuple[str, ...]] = {
     ("brave", "api_key"): ("BRAVE_SEARCH_API_KEY",),
     ("telegram", "bot_token"): ("TELEGRAM_BOT_TOKEN",),
     ("telegram", "chat_id"): ("TELEGRAM_CHAT_ID",),
+    ("whatsapp", "phone_number_id"): (
+        "WHATSAPP_PHONE_NUMBER_ID",
+        "HAWKEYE_WHATSAPP_PHONE_NUMBER_ID",
+    ),
+    ("whatsapp", "access_token"): (
+        "WHATSAPP_ACCESS_TOKEN",
+        "HAWKEYE_WHATSAPP_ACCESS_TOKEN",
+    ),
+    ("whatsapp", "verify_token"): (
+        "WHATSAPP_VERIFY_TOKEN",
+        "HAWKEYE_WHATSAPP_VERIFY_TOKEN",
+    ),
+    ("whatsapp", "app_secret"): (
+        "WHATSAPP_APP_SECRET",
+        "HAWKEYE_WHATSAPP_APP_SECRET",
+    ),
+    ("whatsapp", "allowed_numbers"): (
+        "WHATSAPP_ALLOWED_NUMBERS",
+        "HAWKEYE_WHATSAPP_ALLOWED_NUMBERS",
+    ),
+    ("whatsapp", "notify_rules"): ("HAWKEYE_WHATSAPP_NOTIFY_RULES",),
 }
 
 PROVIDER_META = {
@@ -116,6 +138,25 @@ PROVIDER_META = {
         "fields": ["bot_token", "chat_id"],
         "public_fields": ["chat_id"],
         "hint": "Bot token + chat id for digests / alerts",
+    },
+    "whatsapp": {
+        "label": "WhatsApp (Cloud API)",
+        "fields": [
+            "phone_number_id",
+            "access_token",
+            "verify_token",
+            "app_secret",
+            "allowed_numbers",
+            "notify_rules",
+        ],
+        "connect_fields": ["access_token", "phone_number_id"],
+        "public_fields": ["phone_number_id", "allowed_numbers", "notify_rules"],
+        "webhook_path": "/api/webhooks/whatsapp",
+        "hint": (
+            "Official Meta WhatsApp Cloud API. Paste phone number id + access token + "
+            "verify token + app secret. allowed_numbers = Brandon's E.164 (comma-separated). "
+            "notify_rules default: queue_empty,blocked,human (add digest to opt in)."
+        ),
     },
 }
 
@@ -241,7 +282,7 @@ def list_connections(email: str) -> dict[str, Any]:
             status = "machine"
         else:
             status = "disconnected"
-        out[pid] = {
+        item = {
             "id": pid,
             "label": meta["label"],
             "hint": meta["hint"],
@@ -256,6 +297,11 @@ def list_connections(email: str) -> dict[str, Any]:
             "machine_fallback": machine,
             "encryption": "on" if _secrets_key() else "off",
         }
+        webhook_path = str(meta.get("webhook_path") or "")
+        if webhook_path:
+            item["webhook_url"] = f"https://{ui_auth.public_host()}{webhook_path}"
+            item["webhook_path"] = webhook_path
+        out[pid] = item
     return {
         "ok": True,
         "email": email,

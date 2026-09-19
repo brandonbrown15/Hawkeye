@@ -144,6 +144,7 @@ ollama pull nomic-embed-text     # better embeddings
 - Memory docs: [memory.md](memory.md)  
 - Research docs: [research.md](research.md) (deep page-read on by default)  
 - Email answering: [mail.md](mail.md) (Resend inbound → draft → approve)  
+- WhatsApp: [whatsapp.md](whatsapp.md) (Cloud API chat + operator notifies)  
 - Security baseline: [security.md](security.md)  
 
 Same Notion autopilot / continuous drain as Autocode when you enable those flags.

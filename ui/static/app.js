@@ -1068,6 +1068,34 @@
       const hint = document.createElement("p");
       hint.className = "section-note";
       hint.textContent = p.hint || "";
+      let webhookWrap = null;
+      if (p.webhook_url) {
+        webhookWrap = document.createElement("div");
+        webhookWrap.className = "conn-webhook";
+        const whLabel = document.createElement("label");
+        whLabel.textContent = "Webhook URL (paste in Meta)";
+        const row = document.createElement("div");
+        row.className = "conn-webhook-row";
+        const whInput = document.createElement("input");
+        whInput.type = "text";
+        whInput.readOnly = true;
+        whInput.value = p.webhook_url;
+        const copy = document.createElement("button");
+        copy.type = "button";
+        copy.className = "btn ghost compact";
+        copy.textContent = "Copy";
+        copy.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(p.webhook_url);
+            toast("Webhook URL copied");
+          } catch {
+            whInput.select();
+            toast("Select and copy the webhook URL");
+          }
+        });
+        row.append(whInput, copy);
+        webhookWrap.append(whLabel, row);
+      }
       const fields = document.createElement("div");
       fields.className = "conn-fields";
       const savedFields = p.saved_fields || [];
@@ -1130,7 +1158,9 @@
         }
       });
       actions.append(save, disc);
-      card.append(head, hint, fields, actions);
+      card.append(head, hint);
+      if (webhookWrap) card.append(webhookWrap);
+      card.append(fields, actions);
       list.appendChild(card);
     }
   }

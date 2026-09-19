@@ -74,10 +74,12 @@ _PUBLIC_GET = {
     "/app.css",
     "/api/auth",
     "/api/build",
+    "/api/webhooks/whatsapp",
 }
 _PUBLIC_POST = {
     "/api/login",
     "/api/webhooks/resend",
+    "/api/webhooks/whatsapp",
 }
 
 _demo_lock = threading.Lock()
@@ -401,6 +403,10 @@ def apply_control(action: str, note: str = "", task_id: str = "") -> dict[str, A
     if action == "pause":
         ops.set_control(paused=True, note=note or "paused from UI")
         ops.telegram_notify(f"Autocode PAUSED (UI): {note or 'paused from UI'}")
+        ops.operator_notify(
+            "human",
+            f"Hawkeye is paused and waiting on you: {note or 'paused from UI'}",
+        )
     elif action == "resume":
         ops.set_control(paused=False, note="")
         ops.telegram_notify("Autocode RESUMED (UI)")
@@ -416,7 +422,12 @@ def apply_control(action: str, note: str = "", task_id: str = "") -> dict[str, A
         ops.set_control(clear=True)
     elif action == "ping":
         sent = ops.telegram_notify(note or "Autocode UI ping OK")
-        return {"ok": sent, "error": None if sent else "Telegram not configured", **snapshot()}
+        wa = ops.operator_notify("test", note or "Hawkeye WhatsApp ping OK", force=True)
+        ok = bool(sent or (isinstance(wa, dict) and wa.get("ok")))
+        err = None
+        if not ok:
+            err = "Telegram/WhatsApp not configured"
+        return {"ok": ok, "error": err, "whatsapp": wa, **snapshot()}
     else:
         return {"ok": False, "error": f"unknown action: {action}"}
     return {"ok": True, **snapshot()}
@@ -1275,6 +1286,11 @@ def handle_update_task_status(
 
     try:
         if env_truthy("HAWKEYE_PM_MOCK") or page_id.startswith("mock-"):
+            if str(status).strip().lower() == "blocked":
+                ops.operator_notify(
+                    "blocked",
+                    f"Hawkeye: task marked Blocked.\npage={page_id}",
+                )
             return {
                 "ok": True,
                 "mock": True,
@@ -1285,6 +1301,11 @@ def handle_update_task_status(
                 },
             }
         task = notion_pm.update_task_status(page_id, status, pr_url=pr_url)
+        if str(status).strip().lower() == "blocked":
+            ops.operator_notify(
+                "blocked",
+                f"Hawkeye: task marked Blocked.\npage={page_id}",
+            )
         return {"ok": True, "task": task.to_dict()}
     except notion_pm.NotionError as e:
         return {"ok": False, "error": str(e)}
@@ -1470,6 +1491,14 @@ class Handler(BaseHTTPRequestHandler):
             )
         if path == "/api/build":
             return self._send(*json_response({"ok": True, **build_info()}))
+        if path == "/api/webhooks/whatsapp":
+            from urllib.parse import parse_qs
+
+            from whatsapp.webhook import handle_verify_request
+
+            qs = parse_qs(urlparse(self.path).query)
+            code, body, ctype = handle_verify_request(qs)
+            return self._send(code, body, ctype)
         # Remaining API + pages need a session in private mode.
         if path.startswith("/api/"):
             if not self._require_session(path, html=False):
@@ -1591,6 +1620,20 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
+
+        if path == "/api/webhooks/whatsapp":
+            raw = self._read_raw()
+            headers = {k: v for k, v in self.headers.items()}
+            try:
+                from whatsapp import handle_inbound_payload
+                from whatsapp.webhook import WebhookError
+
+                out = handle_inbound_payload(raw, headers=headers)
+                return self._send(*json_response(out))
+            except WebhookError as e:
+                return self._send(*json_response({"ok": False, "error": str(e)}, 403))
+            except Exception as e:  # noqa: BLE001
+                return self._send(*json_response({"ok": False, "error": str(e)}, 500))
 
         # Resend inbound webhook — raw body required for signature verify.
         if path == "/api/webhooks/resend":
