@@ -88,8 +88,14 @@ sudo tailscale up
 # → http://<tailscale-ip>:8787/
 ```
 
-Login: work email `@brownhawke.engineering` + password from `config/users.json`  
-(`python3 scripts/set_work_user.py --email brandon@brownhawke.engineering --password '…'`).
+Login: work email `@brownhawke.engineering` + password hash in `config/users.json`.  
+Reset without putting the secret in git / shell history:
+
+```bash
+./scripts/hawkeye accounts set-password --email mark@brownhawke.engineering
+```
+
+Full login path + Mark runbook: [login.md](login.md).
 
 ### Autostart on boot
 ```bash
@@ -139,6 +145,38 @@ See [accounts.md](accounts.md).
 ./scripts/hawkeye_self_update.sh --check
 # pause: Account → Machine → uncheck auto-update, or HAWKEYE_UPDATE_ENABLED=0
 ```
+
+`--force` restarts the UI but **will not pull** while the working tree is dirty (`working-tree=dirty`). That is why a live box can sit on an old SHA after `main` moved.
+
+### Stuck dirty checkout (no Tailscale) — recover to `main`
+
+If Account → Machine → Force update refuses (`working-tree=dirty`) and the new Discard button is not on this SHA yet, run this **on the Jetson** (local console / HDMI / existing SSH — not Tailscale):
+
+```bash
+# Typical clone; adjust if Hawkeye lives elsewhere
+cd ~/Hawkeye
+
+git fetch origin main
+git status --porcelain
+# Expect dirty tracked files. .env is gitignored and is NOT discarded.
+
+# Discard tracked local edits and land on origin/main (e.g. 72d6230 + Wake Ollama)
+git checkout -B main origin/main
+# If checkout is blocked by untracked files (keeps gitignored .env):
+#   git clean -fd
+#   git checkout -B main origin/main
+
+./scripts/hawkeye_self_update.sh --reset   # same reset + UI restart (once this SHA is present)
+systemctl --user restart hawkeye-ui.service
+./ollama/ensure_ollama.sh
+sudo systemctl enable --now ollama 2>/dev/null || true
+
+git rev-parse --short HEAD   # should match origin/main
+```
+
+After this lands, Account → Machine → **Discard local changes and update** is the admin UI equivalent (`hawkeye_self_update.sh --reset`). `.env` stays; only tracked dirty files are thrown away.
+
+Then: Account → Machine → **Wake Ollama**, Local only OFF, and chat escalate can use the Cursor API key saved under Connections.
 
 ## Phase 0 checklist
 

@@ -24,10 +24,11 @@ chmod +x scripts/publish_hawkeye_private.sh
 ## 2. Turn on login + product name
 
 Work emails only (`@brownhawke.engineering`). Brandon is seeded in `config/users.json`.
-Add teammates:
+Add teammates (prompts for a password; stores a hash only — see [login.md](login.md)):
 
 ```bash
-python3 scripts/set_work_user.py --email alex@brownhawke.engineering
+./scripts/hawkeye accounts set-password --email alex@brownhawke.engineering
+# equivalent: python3 scripts/set_work_user.py --email alex@brownhawke.engineering
 ```
 
 `.env`:

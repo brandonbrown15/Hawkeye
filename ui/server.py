@@ -59,7 +59,7 @@ def build_info() -> dict[str, Any]:
         "branch": branch,
         "rev": rev,
         "pid": os.getpid(),
-        "login_errors": "v2",
+        "login_errors": "v3",
     }
 
 
@@ -114,11 +114,17 @@ def has_env(name: str) -> bool:
     return bool(os.environ.get(name, "").strip())
 
 
-def _ready_secret(provider: str, field: str) -> bool:
+def _ready_secret(provider: str, field: str, *, email: str | None = None) -> bool:
+    """True if the signed-in vault or machine .env has this secret.
+
+    Must pass email= (or rely on set_request_user). Calling has_secret() with
+    neither ignores Account → Connections and only sees machine .env — that is
+    why live readiness showed Cursor/Grok webhook **skip** after a Connections save.
+    """
     try:
         from ui import connections
 
-        return connections.has_secret(provider, field)
+        return connections.has_secret(provider, field, email=email)
     except Exception:  # noqa: BLE001
         return False
 
@@ -146,8 +152,6 @@ def readiness(*, user: str | None = None) -> dict[str, Any]:
     except Exception as e:  # noqa: BLE001
         details = [f"health check error: {e}"]
 
-    cursor_cmd = os.environ.get("AUTOCODE_CURSOR_DELEGATE_CMD", "")
-    grok_cmd = os.environ.get("AUTOCODE_GROK_DELEGATE_CMD", "")
     # Autopilot/cloud readiness uses global LOCAL_ONLY (not per-user chat toggle).
     runtime_data = runtime.load()
     if "local_only" in runtime_data:
@@ -160,7 +164,7 @@ def readiness(*, user: str | None = None) -> dict[str, Any]:
         {
             "id": "notion",
             "label": "Notion connected",
-            "ok": _ready_secret("notion", "token"),
+            "ok": _ready_secret("notion", "token", email=user),
             "hint": "Account → Connections → Notion (or ./scripts/connect_notion.sh)",
         },
         {
@@ -172,7 +176,7 @@ def readiness(*, user: str | None = None) -> dict[str, Any]:
         {
             "id": "github",
             "label": "GitHub token",
-            "ok": _ready_secret("github", "token") or gh_authed(),
+            "ok": _ready_secret("github", "token", email=user) or gh_authed(),
             "hint": "Account → Connections → GitHub (needed for auto-update HTTPS fetch)",
         },
         {
@@ -191,24 +195,19 @@ def readiness(*, user: str | None = None) -> dict[str, Any]:
         {
             "id": "cursor",
             "label": "Cursor Cloud",
+            # Chat escalate reads Connections / .env. A stub overnight delegate
+            # must not force this optional check to "skip".
             "ok": local_only
-            or _ready_secret("cursor", "api_key")
-            or (
-                _ready_secret("cursor", "webhook_url")
-                and "stub" not in cursor_cmd
-            ),
-            "hint": "Account → Connections → Cursor API key (Dashboard → API Keys)",
+            or _ready_secret("cursor", "api_key", email=user)
+            or _ready_secret("cursor", "webhook_url", email=user),
+            "hint": "Account → Connections → Cursor API key (or webhook bridge)",
             "optional": True,
         },
         {
             "id": "grok",
             "label": "Grok Bot webhook",
-            "ok": local_only
-            or (
-                _ready_secret("grok", "webhook_url")
-                and "stub" not in grok_cmd
-            ),
-            "hint": "Account → Connections → Grok (or keep LOCAL_ONLY=1)",
+            "ok": local_only or _ready_secret("grok", "webhook_url", email=user),
+            "hint": "Account → Connections → Grok webhook_url (or keep LOCAL_ONLY=1)",
             "optional": True,
         },
         {
@@ -264,7 +263,7 @@ def readiness(*, user: str | None = None) -> dict[str, Any]:
                 "id": "private_auth",
                 "label": f"Work login (@{ui_auth.allowed_email_domain()})",
                 "ok": ui_auth.credentials_ready(),
-                "hint": "python3 scripts/set_work_user.py --email you@brownhawke.engineering",
+                "hint": "./scripts/hawkeye accounts set-password --email you@brownhawke.engineering",
             }
         )
     memory_stats: dict[str, Any] | None = None
@@ -475,6 +474,52 @@ def _workspace_brief() -> str:
     return "\n".join(lines)
 
 
+def _chat_ollama_timeout_sec() -> float:
+    """Interactive chat must fail fast — do not sit on a 120s Ollama hang."""
+    raw = os.environ.get("HAWKEYE_CHAT_OLLAMA_TIMEOUT_SEC", "18")
+    try:
+        return max(5.0, min(45.0, float(raw)))
+    except ValueError:
+        return 18.0
+
+
+def _friendly_local_error(err: str) -> str:
+    low = (err or "").lower()
+    if "timed out" in low or "timeout" in low:
+        return "The local model did not answer in time. Try again, or Wake Ollama under Account → Machine."
+    if "connection refused" in low or "errno 111" in low or "connection reset" in low:
+        return "Ollama is not running. Open Account → Machine and tap Wake Ollama, then send again."
+    return f"Local model unavailable. {err}"
+
+
+def _is_trivial_chat(message: str) -> bool:
+    """Greetings and pings must not burn a cloud escalate (that hung Send on 'Hi')."""
+    text = (message or "").strip().lower().rstrip("!.?")
+    if not text or len(text) > 24:
+        return False
+    return text in {
+        "hi",
+        "hello",
+        "hey",
+        "yo",
+        "sup",
+        "hiya",
+        "howdy",
+        "hello there",
+        "hi there",
+        "hey there",
+        "good morning",
+        "good afternoon",
+        "good evening",
+        "thanks",
+        "thank you",
+        "ok",
+        "okay",
+        "ping",
+        "test",
+    }
+
+
 def _ollama_chat(
     message: str,
     system: str,
@@ -510,12 +555,14 @@ def _ollama_chat(
         method="POST",
         headers={"Content-Type": "application/json"},
     )
-    with urllib.request.urlopen(req, timeout=120) as resp:
+    with urllib.request.urlopen(req, timeout=_chat_ollama_timeout_sec()) as resp:
         data = _json.loads(resp.read().decode())
     return (data.get("message") or {}).get("content") or data.get("response") or ""
 
 
 def _should_escalate(message: str, local_reply: str, *, history: list[dict[str, str]] | None = None) -> bool:
+    if _is_trivial_chat(message):
+        return False
     text = f"{message}\n{local_reply}".lower()
     triggers = (
         "escalate:",
@@ -532,7 +579,7 @@ def _should_escalate(message: str, local_reply: str, *, history: list[dict[str, 
     keywords = ("architecture", "redesign", "migrate", "multi-service", "security audit")
     if len(message) > 400 or sum(1 for k in keywords if k in message.lower()) >= 2:
         return True
-    if len(local_reply.strip()) < 40:
+    if len(local_reply.strip()) < 40 and len(message.strip()) >= 60:
         return True
 
     # Repo review / deep code inspection is better as Cursor when cloud is allowed.
@@ -740,13 +787,37 @@ def _cloud_chat(message: str, local_reply: str, *, email: str | None = None) -> 
             data = _json.loads(resp.read().decode())
         return data["choices"][0]["message"]["content"], "Grok API"
 
-    hint = (
-        "No premium provider configured. Add a Cursor API key (Dashboard → API Keys) under "
-        "Account → Connections → Cursor, or Grok / Claude / OpenRouter. Local reply retained."
+    return _premium_none_hint(email, errors, grok_key_present=bool(xai)), "none"
+
+
+def _premium_none_hint(email: str | None, errors: list[str], *, grok_key_present: bool) -> str:
+    """Explain [none] — 'not configured' was a lie when keys existed but were unusable."""
+    from ui import connections
+
+    unread = connections.unreadable_secret_labels(
+        email=email,
+        providers=("cursor", "grok", "claude", "openrouter"),
     )
+    grok_blocked = grok_key_present and env_truthy("AUTOCODE_DISABLE_METERED_GROK", "1")
+    parts: list[str] = []
     if errors:
-        hint += " Webhook errors: " + "; ".join(errors)
-    return hint, "none"
+        parts.append("Premium provider(s) failed: " + "; ".join(errors))
+    else:
+        parts.append(
+            "No usable premium provider. Chat escalate needs a decryptable Cursor API key "
+            "(Dashboard → API Keys) or a Cursor / Grok Bot webhook URL. Local reply retained."
+        )
+    if grok_blocked:
+        parts.append(
+            "Grok xAI API key is saved but AUTOCODE_DISABLE_METERED_GROK=1 "
+            "(default — add a Grok Bot webhook or use Cursor; do not enable metered xAI overnight)."
+        )
+    if unread:
+        parts.append(
+            "Saved Connection secrets could not be decrypted — check HAWKEYE_MEMORY_KEY "
+            f"(unreadable: {', '.join(unread)})."
+        )
+    return " ".join(parts)
 
 
 def _memory_context(message: str) -> tuple[str, list[dict[str, Any]]]:
@@ -877,18 +948,19 @@ def handle_chat(
             "For repo questions, use the workspace brief above and conversation history."
         )
     local_reply = ""
+    local_error = ""
     escalated = False
     try:
         local_reply = _ollama_chat(message, system, history=prior)
     except Exception as e:  # noqa: BLE001
         err = str(e)
-        # Tunnel/UI can be up while Ollama died after boot — try one remote wake.
         woke = False
-        if any(x in err.lower() for x in ("connection refused", "errno 111", "timed out", "urlopen error")):
+        # Wake only when the daemon is down — do not stack another 8s after a hang.
+        if any(x in err.lower() for x in ("connection refused", "errno 111", "connection reset")):
             try:
                 from ui import machine_settings
 
-                wake = machine_settings.ensure_ollama(restart=False, timeout_sec=90)
+                wake = machine_settings.ensure_ollama(restart=False, timeout_sec=5)
                 if wake.get("ok") or wake.get("reachable"):
                     try:
                         local_reply = _ollama_chat(message, system, history=prior)
@@ -896,24 +968,32 @@ def handle_chat(
                     except Exception as e2:  # noqa: BLE001
                         err = str(e2)
                 if not woke:
-                    detail = wake.get("error") or (wake.get("log") or "")[:240]
-                    local_reply = f"(local model unavailable: {err})\n(tried Wake Ollama: {detail})"
+                    local_error = _friendly_local_error(err)
+                    local_reply = local_error
             except Exception as wake_err:  # noqa: BLE001
-                local_reply = f"(local model unavailable: {err}; wake failed: {wake_err})"
+                local_error = _friendly_local_error(f"{err}; wake failed: {wake_err}")
+                local_reply = local_error
         else:
-            local_reply = f"(local model unavailable: {err})"
-        if not woke:
-            escalated = True
-    if not escalated:
+            local_error = _friendly_local_error(err)
+            local_reply = local_error
+    if not local_error:
         escalated = _should_escalate(message, local_reply, history=prior)
+    elif not _is_trivial_chat(message) and (
+        _should_escalate(message, "", history=prior) or len(message.strip()) >= 60
+    ):
+        # Substantial asks may still try cloud when Ollama is down. "Hi" must not.
+        escalated = True
 
     cloud_reply = ""
+    cloud_error = ""
     provider = ""
     if escalated and stay_local:
         escalated = False
         provider = "local-only"
-        if "(local model unavailable:" in local_reply:
-            local_reply += "\n\n(PERSONAL_LOCAL_ONLY=1 — start Ollama or turn that flag off to use Cursor/Grok.)"
+        if local_error:
+            local_reply += (
+                "\n\nLocal only is on — start Ollama or turn Local only off to use Cursor/Grok."
+            )
     elif escalated:
         try:
             # Cloud escalator also gets memory + research context.
@@ -923,8 +1003,16 @@ def handle_chat(
                     f"{message}\n\n--- context ---\n{memory_prompt}\n{research_prompt}".strip()
                 )
             cloud_reply, provider = _cloud_chat(enriched, local_reply, email=email)
+            if not provider or str(provider).lower() in ("none", "error"):
+                cloud_error = cloud_reply or (
+                    "Cloud escalate failed. Check Account → Connections for Cursor or Grok."
+                )
         except Exception as e:  # noqa: BLE001
-            cloud_reply = f"(cloud escalate failed: {e})"
+            cloud_error = (
+                "Cloud escalate failed. Check Account → Connections for Cursor or Grok, "
+                f"or turn on Local only. ({e})"
+            )
+            cloud_reply = cloud_error
             provider = "error"
 
     # Surface citations in the local reply when research ran and model omitted them.
@@ -1033,8 +1121,10 @@ def handle_chat(
     return {
         "ok": True,
         "local_reply": local_reply,
+        "local_error": local_error,
         "escalated": escalated,
         "cloud_reply": cloud_reply,
+        "cloud_error": cloud_error,
         "provider": provider,
         "local_only": stay_local,
         "product": name,
@@ -1146,7 +1236,16 @@ class Handler(BaseHTTPRequestHandler):
         for key, val in extra_headers or []:
             self.send_header(key, val)
         self.end_headers()
+        if getattr(self, "_head_only", False):
+            return
         self.wfile.write(body)
+
+    def _redirect(self, location: str, code: int = 302) -> None:
+        self.send_response(code)
+        self.send_header("Location", location)
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _read_raw(self) -> bytes:
         length = int(self.headers.get("Content-Length", "0") or 0)
@@ -1218,12 +1317,9 @@ class Handler(BaseHTTPRequestHandler):
         if self._authed():
             return True
         if html:
-            self.send_response(302)
-            self.send_header("Location", "/login")
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
+            self._redirect("/login")
             return False
-        self._send(*json_response({"ok": False, "error": "login required"}, 401))
+        self._send(*json_response({"ok": False, "error": "login required", "code": "login_required"}, 401))
         return False
 
     def _bind_request_user(self) -> None:
@@ -1246,10 +1342,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._static("index.html", "text/html; charset=utf-8")
         if path in ("/login", "/login.html"):
             if ui_auth.private_mode_enabled() and self._authed():
-                self.send_response(302)
-                self.send_header("Location", "/")
-                self.send_header("Cache-Control", "no-store")
-                self.end_headers()
+                self._redirect("/")
                 return
             return self._static("login.html", "text/html; charset=utf-8")
         if path == "/app.css":
@@ -1279,6 +1372,7 @@ class Handler(BaseHTTPRequestHandler):
                 except Exception:  # noqa: BLE001
                     profile = None
             auth_user = None if _is_open_user(user) else user
+            access = ui_auth.cloudflare_access_identity(self.headers)
             return self._send(
                 *json_response(
                     {
@@ -1292,6 +1386,11 @@ class Handler(BaseHTTPRequestHandler):
                         "user": auth_user,
                         "profile": profile,
                         "build": build_info(),
+                        "login_emails": ui_auth.list_login_emails()
+                        if not ui_auth.private_mode_enabled()
+                        else [],
+                        "configured_user_count": len(ui_auth.load_users()),
+                        **access,
                     }
                 )
             )
@@ -1445,59 +1544,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send(
                     *json_response({"ok": True, "private_mode": False, "token": TOKEN})
                 )
-            if not ui_auth.credentials_ready():
-                return self._send(
-                    *json_response(
-                        {
-                            "ok": False,
-                            "error": "No work users configured. "
-                            "Add @brownhawke.engineering accounts via "
-                            "python3 scripts/set_work_user.py --email …",
-                        },
-                        503,
-                    )
-                )
             email = str(data.get("email") or data.get("username") or "")
             password = str(data.get("password") or "")
-            if not email.strip() or not password:
-                return self._send(
-                    *json_response(
-                        {
-                            "ok": False,
-                            "error": "Email and password required "
-                            "(browser autofill may have left password empty — try typing it)",
-                        },
-                        401,
-                    )
-                )
-            sess = ui_auth.login(email, password)
-            if not sess:
-                # Distinguish domain vs bad secret without leaking which emails exist.
-                from ui import auth as _a
-
-                norm = _a.normalize_email(email)
-                if norm and "@" not in norm:
-                    norm = f"{norm}@{_a.allowed_email_domain()}"
-                if not _a.is_allowed_email(norm):
-                    detail = (
-                        f"only @{_a.allowed_email_domain()} emails allowed"
-                    )
-                elif norm not in _a.load_users():
-                    detail = "unknown work email (run scripts/set_work_user.py)"
-                else:
-                    detail = (
-                        "wrong password for that email "
-                        "(clear autofill / try private window)"
-                    )
-                return self._send(
-                    *json_response(
-                        {
-                            "ok": False,
-                            "error": f"Invalid email or password — {detail}",
-                        },
-                        401,
-                    )
-                )
+            sess, failure = ui_auth.authenticate(email, password)
+            if not sess or failure:
+                payload = {"ok": False, **(failure.as_dict() if failure else {"error": "Login failed", "code": "unknown"})}
+                access = ui_auth.cloudflare_access_identity(self.headers)
+                payload.update(access)
+                code = 503 if failure and failure.code == ui_auth.CODE_NOT_CONFIGURED else 401
+                return self._send(*json_response(payload, code))
             # Optional first-time profile fields on login.
             if any(k in data for k in ("first_name", "last_name", "employee_number")):
                 try:
@@ -1518,8 +1573,16 @@ class Handler(BaseHTTPRequestHandler):
                 profile = accounts.get_profile(ui_auth.session_user(sess) or email)
             except Exception:  # noqa: BLE001
                 profile = None
+            signed_email = ui_auth.session_user(sess) or ui_auth.canonicalize_email(email)
             return self._send(
-                *json_response({"ok": True, "token": TOKEN, "profile": profile}),
+                *json_response(
+                    {
+                        "ok": True,
+                        "token": TOKEN,
+                        "user": signed_email,
+                        "profile": profile,
+                    }
+                ),
                 extra_headers=[
                     (
                         "Set-Cookie",
@@ -1532,7 +1595,9 @@ class Handler(BaseHTTPRequestHandler):
             ui_auth.logout(self._session_token())
             return self._send(
                 *json_response({"ok": True}),
-                extra_headers=[("Set-Cookie", ui_auth.clear_session_cookie_header())],
+                extra_headers=[
+                    ("Set-Cookie", ui_auth.clear_session_cookie_header(secure=self._wants_secure_cookie()))
+                ],
             )
 
         if not self._require_session(path, html=False):
@@ -1851,8 +1916,30 @@ class Handler(BaseHTTPRequestHandler):
             body = html.encode("utf-8")
         elif name == "login.html":
             html = body.decode("utf-8").replace("{{PRODUCT}}", ui_auth.product_name())
+            html = html.replace("{{EMAIL_DOMAIN}}", ui_auth.allowed_email_domain())
+            html = html.replace("{{PUBLIC_HOST}}", ui_auth.public_host())
             body = html.encode("utf-8")
         self._send(200, body, content_type)
+
+    def do_HEAD(self) -> None:  # noqa: N802
+        """Health checks / crawlers: same headers as GET, no body.
+
+        BaseHTTPRequestHandler does not implement HEAD, so Cloudflare HEAD
+        probes previously got HTTP 501 even though GET /login was fine.
+        """
+        self._head_only = True
+        try:
+            self.do_GET()
+        finally:
+            self._head_only = False
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        # Same-origin fetch does not need CORS; answer so probes are not 501.
+        self.send_response(204)
+        self.send_header("Allow", "GET, POST, HEAD, OPTIONS")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
 
 def main() -> None:
@@ -1870,7 +1957,7 @@ def main() -> None:
         print(f"Public host (tunnel): https://{ui_auth.public_host()}/")
     if ui_auth.private_mode_enabled() and not ui_auth.credentials_ready():
         print("WARNING: AUTOCODE_PRIVATE_MODE=1 but no work users configured.")
-        print("         Run: python3 scripts/set_work_user.py --email you@brownhawke.engineering")
+        print("         Run: ./scripts/hawkeye accounts set-password --email you@brownhawke.engineering")
     print("Press Ctrl+C to stop.")
     try:
         httpd.serve_forever()

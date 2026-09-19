@@ -5,6 +5,7 @@
 #   ./scripts/hawkeye_self_update.sh           # no-op if already up to date
 #   ./scripts/hawkeye_self_update.sh --force   # restart UI even if no git change
 #   ./scripts/hawkeye_self_update.sh --check   # print status only
+#   ./scripts/hawkeye_self_update.sh --reset   # discard tracked local changes; align to remote branch
 #
 # Env:
 #   HAWKEYE_UPDATE_ENABLED=0     skip updates (timer still fires, exits 0)
@@ -21,12 +22,14 @@ cd "$ROOT"
 
 FORCE=0
 CHECK_ONLY=0
+RESET=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force) FORCE=1; shift ;;
     --check) CHECK_ONLY=1; shift ;;
+    --reset|--discard-local) RESET=1; FORCE=1; shift ;;
     -h|--help)
-      sed -n '2,18p' "$0"
+      sed -n '2,20p' "$0"
       exit 0
       ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
@@ -127,24 +130,45 @@ if [[ "$CHECK_ONLY" -eq 1 ]]; then
   else
     echo "behind local=${BEFORE:0:8} remote=${REMOTE_REV:0:8}"
   fi
-  [[ "$DIRTY" -eq 1 ]] && echo "working-tree=dirty"
+  if [[ "$DIRTY" -eq 1 ]]; then
+    echo "working-tree=dirty"
+    echo "hint: Account → Machine → Discard local changes, or: $0 --reset"
+  fi
   exit 0
 fi
 
-if [[ "$DIRTY" -eq 1 ]]; then
+UPDATED=0
+if [[ "$RESET" -eq 1 ]]; then
+  log "RESET: discarding tracked local changes; align to ${REMOTE}/${BRANCH}"
+  while IFS= read -r line; do
+    [[ -n "$line" ]] && log "  dirty: $line"
+  done < <(git status --porcelain 2>/dev/null || true)
+  # Never git clean -x — .env and other gitignored secrets must stay.
+  current="$(git rev-parse --abbrev-ref HEAD)"
+  if [[ "$current" != "$BRANCH" ]]; then
+    if ! git checkout -f -B "$BRANCH" "${REMOTE}/${BRANCH}"; then
+      log "WARN: checkout blocked by untracked files; git clean -fd (keeps gitignored .env)"
+      git clean -fd
+      git checkout -f -B "$BRANCH" "${REMOTE}/${BRANCH}"
+    fi
+  else
+    git reset --hard "${REMOTE}/${BRANCH}"
+  fi
+  AFTER="$(git rev-parse HEAD)"
+  log "Reset ${BEFORE:0:8} → ${AFTER:0:8} (${REMOTE}/${BRANCH})"
+  UPDATED=1
+elif [[ "$DIRTY" -eq 1 ]]; then
   log "WARN: working tree dirty — refusing auto-pull (commit/stash local edits first)"
   if [[ "$FORCE" -eq 0 ]]; then
     exit 0
   fi
   log "WARN: --force with dirty tree; will restart services only (no pull)"
-fi
-
-UPDATED=0
-if [[ "$BEFORE" != "$REMOTE_REV" ]]; then
-  if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
-    log "ERROR: cannot pull while dirty"
+  if [[ "$BEFORE" != "$REMOTE_REV" ]]; then
+    log "ERROR: cannot pull while dirty (use --reset to discard tracked local changes)"
     exit 1
   fi
+  AFTER="$BEFORE"
+elif [[ "$BEFORE" != "$REMOTE_REV" ]]; then
   # Stay on the tracking branch if already on it. Do NOT auto-checkout another
   # branch (that yanked Jetson hotfixes back to main every 5 minutes).
   current="$(git rev-parse --abbrev-ref HEAD)"

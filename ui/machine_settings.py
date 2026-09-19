@@ -368,6 +368,8 @@ def status(email: str | None = None) -> dict[str, Any]:
             "Add Cloudflare Tunnel install token, encryption key, Notion hub page id, "
             "and auto-update branch here. Use Wake Ollama if chat says connection refused. "
             "Force update injects Connections → GitHub token for HTTPS fetch. "
+            "Force update will not pull a dirty tree — use Discard local changes "
+            "to reset to origin/main (.env stays). "
             "Per-user API keys live under Connections."
         ),
     }
@@ -505,28 +507,36 @@ def apply(email: str, updates: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"Notion provision failed: {e}") from e
 
     force_update = str(updates.get("force_update") or "").lower() in ("1", "true", "yes")
+    reset_to_remote = str(
+        updates.get("reset_to_remote") or updates.get("discard_local") or ""
+    ).lower() in ("1", "true", "yes")
     repair_git = str(updates.get("repair_git") or "").lower() in ("1", "true", "yes")
-    force_log = ""
+    update_log = ""
     repair_result: dict[str, Any] | None = None
-    if force_update or repair_git:
+    if force_update or reset_to_remote or repair_git:
         repair_result = repair_git_https_fetch(email)
-        actions.append("repair_git_ok" if repair_result.get("ok") else f"repair_git_fail:{repair_result.get('error', '')[:80]}")
-        if repair_git and not force_update and not repair_result.get("ok"):
+        actions.append(
+            "repair_git_ok" if repair_result.get("ok") else f"repair_git_fail:{repair_result.get('error', '')[:80]}"
+        )
+        if repair_git and not force_update and not reset_to_remote and not repair_result.get("ok"):
             raise ValueError(f"git repair failed: {repair_result.get('error')}")
-    if force_update:
+    if force_update or reset_to_remote:
+        flag = "--reset" if reset_to_remote else "--force"
         try:
-            proc = _run_self_update("--force", email=email, timeout=600)
-            force_log = ((proc.stdout or "") + (proc.stderr or "")).strip()[-4000:]
+            proc = _run_self_update(flag, email=email, timeout=600)
+            update_log = ((proc.stdout or "") + (proc.stderr or "")).strip()
             actions.append(
-                "force_update_ok" if proc.returncode == 0 else f"force_update_fail:{proc.returncode}"
+                f"{'reset_to_remote' if reset_to_remote else 'force_update'}"
+                + ("_ok" if proc.returncode == 0 else f"_fail:{proc.returncode}")
             )
             if proc.returncode != 0:
                 raise ValueError(
-                    f"force update failed ({proc.returncode}): "
-                    f"{force_log[-400:] or 'see logs/self-update.log'}"
+                    f"{flag} failed ({proc.returncode}): {update_log[-1200:] or 'see logs/self-update.log'}"
                 )
         except FileNotFoundError as e:
             raise ValueError(str(e)) from e
+        except ValueError:
+            raise
         except (OSError, subprocess.TimeoutExpired) as e:
             raise ValueError(f"force update failed: {e}") from e
 
@@ -544,8 +554,9 @@ def apply(email: str, updates: dict[str, Any]) -> dict[str, Any]:
     out["updated_at"] = time.time()
     if ollama_result is not None:
         out["ollama"] = ollama_result
-    if force_log:
-        out["force_update_log"] = force_log
+    if update_log:
+        out["update_log"] = update_log
+        out["force_update_log"] = update_log
     if repair_result is not None:
         out["repair_git"] = repair_result
     if provision_log:
