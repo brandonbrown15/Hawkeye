@@ -242,6 +242,12 @@ class LoginHttpTests(unittest.TestCase):
         self.assertIn("novalidate", html)
         self.assertIn("credentials: \"same-origin\"", html)
         self.assertIn("brownhawke.engineering", html)
+        # Must classify JSON errors before scanning the body for "Cloudflare Access"
+        # (our own hint text mentions Access and used to false-positive Gmail).
+        json_first = html.find("data.ok === false")
+        access_scan = html.find("cloudflareaccess")
+        self.assertGreater(json_first, 0)
+        self.assertGreater(access_scan, json_first)
 
         conn = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
         conn.request("HEAD", "/login")

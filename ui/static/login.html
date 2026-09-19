@@ -219,9 +219,17 @@
     }
 
     function classifyHttpFailure(r, data, text) {
+      // Prefer Hawkeye's JSON codes. Our own hint text mentions "Cloudflare Access"
+      // on purpose — do not treat that as an Access block.
+      if (data && (data.code || data.error) && data.ok === false) return data;
+      if (data && data.code && data.error) return data;
       const loc = (r.headers.get("Location") || "").toLowerCase();
-      const html = `${text || ""}`.toLowerCase();
-      if (r.status === 403 || r.status === 302 || loc.includes("cloudflareaccess") || html.includes("cloudflare access")) {
+      const raw = `${text || ""}`;
+      const looksHtml = /^\s*</.test(raw) || /<html|<!doctype/i.test(raw);
+      const accessHit = loc.includes("cloudflareaccess") || (
+        looksHtml && /cloudflare access/i.test(raw)
+      );
+      if (accessHit || (looksHtml && (r.status === 403 || r.status === 302))) {
         return {
           code: "access_blocked",
           error: "Cloudflare Access blocked this request before Hawkeye saw it.",
@@ -235,8 +243,7 @@
           hint: "On the Jetson: systemctl --user status hawkeye-ui.service hawkeye-tunnel.service",
         };
       }
-      if (data && (data.error || data.code)) return data;
-      if (html.includes("<html") || html.includes("<!doctype")) {
+      if (looksHtml) {
         return {
           code: "html_error",
           error: "The server returned a page instead of a login response.",
