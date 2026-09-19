@@ -719,6 +719,8 @@ class UiHelpersTests(unittest.TestCase):
         self.assertIn("askHawkeye", html)
         self.assertIn("data-pane=\"chat\"", html)
         self.assertIn("never land on a long board scroll", js)
+        css = (ROOT / "ui/static/app.css").read_text(encoding="utf-8")
+        self.assertIn("100dvh - 16rem", css)
 
 if __name__ == "__main__":
     unittest.main()

@@ -1551,12 +1551,14 @@ input:focus, select:focus, textarea:focus {
   body[data-pane="inbox"] .ops-panel { display: block !important; }
 
   .workspace-chat {
-    position: sticky;
-    top: calc(3.4rem + var(--safe-top));
-    min-height: calc(100dvh - 8.6rem);
-    max-height: calc(100dvh - 8.6rem);
+    position: relative;
+    top: auto;
+    min-height: calc(100dvh - 12.5rem);
+    max-height: calc(100dvh - 12.5rem);
+    padding-bottom: 0.35rem;
     border-radius: var(--radius);
   }
+  .chat-form { flex-shrink: 0; }
 
   .pane-switch {
     display: grid;
@@ -1615,6 +1617,10 @@ input:focus, select:focus, textarea:focus {
   .header-btns { width: 100%; }
   .btn.compact { min-height: 40px; }
   .chat-form textarea { font-size: 16px; min-height: 4.6rem; }
+  .workspace-chat {
+    min-height: calc(100dvh - 16rem);
+    max-height: calc(100dvh - 16rem);
+  }
   .switch-hint { display: none; }
 }
 
