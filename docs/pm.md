@@ -18,8 +18,11 @@ Default database IDs for BrownHawke are built in when `HAWKEYE_NOTION_USE_DEFAUL
 GET  /api/projects
 GET  /api/tasks?board=hawkeye&status=Ready&limit=50
 GET  /api/tasks/{page_id}?board=hawkeye
+POST /api/tasks            { "name": "…", "status": "Ready", "priority": "P2", "token": "…" }
 POST /api/tasks/{page_id}   { "status": "Done", "token": "…" }
 ```
+
+The web UI defaults to a **queue list** with an add-task field. Kanban remains available as Board. Chat can still create cards (`add a Ready task: …`).
 
 Without `NOTION_TOKEN`, the UI shows sample tasks and a banner. Connect Notion on the Jetson:
 

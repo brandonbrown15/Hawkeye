@@ -1268,6 +1268,49 @@ def handle_get_task(page_id: str, board_id: str = "hawkeye") -> dict[str, Any]:
         return {"ok": False, "error": str(e)}
 
 
+def handle_create_task(
+    name: str,
+    *,
+    board_id: str = "hawkeye",
+    status: str = "Ready",
+    priority: str = "P2",
+    notes: str = "",
+) -> dict[str, Any]:
+    from notion import pm as notion_pm
+    from ui import connections
+
+    board_id = (board_id or "hawkeye").strip() or "hawkeye"
+    name = (name or "").strip()
+    if not name:
+        return {"ok": False, "error": "task name required"}
+    token_present = connections.has_secret("notion", "token")
+    force_mock = env_truthy("HAWKEYE_PM_MOCK")
+    if force_mock or not token_present:
+        card = notion_pm.TaskCard(
+            page_id="",
+            task_id="",
+            name=name,
+            status=status or "Ready",
+            priority=(priority or "P2").upper(),
+            notes=notes or "Created from Hawkeye queue",
+            acceptance=f"Queued from Hawkeye: {name}",
+            board_id=board_id,
+        )
+        card = notion_pm.remember_mock_task(card)
+        return {"ok": True, "mock": True, "offline": not token_present, "task": card.to_dict()}
+    try:
+        task = notion_pm.create_task(
+            name,
+            board_id=board_id,
+            status=status or "Ready",
+            priority=priority or "P2",
+            notes=notes or "Created from Hawkeye queue",
+        )
+        return {"ok": True, "task": task.to_dict()}
+    except notion_pm.NotionError as e:
+        return {"ok": False, "error": str(e)}
+
+
 def handle_update_task_status(
     page_id: str, status: str, *, pr_url: str | None = None
 ) -> dict[str, Any]:
@@ -1951,6 +1994,18 @@ class Handler(BaseHTTPRequestHandler):
 
             msg_id = path[len("/api/mail/") : -len("/ignore")].strip("/")
             return self._send(*json_response(ignore_message(msg_id)))
+        if path == "/api/tasks":
+            return self._send(
+                *json_response(
+                    handle_create_task(
+                        str(data.get("name") or data.get("title") or ""),
+                        board_id=str(data.get("board") or data.get("board_id") or "hawkeye"),
+                        status=str(data.get("status") or "Ready"),
+                        priority=str(data.get("priority") or "P2"),
+                        notes=str(data.get("notes") or ""),
+                    )
+                )
+            )
         if path.startswith("/api/tasks/") and (
             self.headers.get("X-HTTP-Method-Override", "").upper() == "PATCH"
             or str(data.get("_method") or "").upper() == "PATCH"

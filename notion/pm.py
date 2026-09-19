@@ -483,6 +483,26 @@ def board_summary(board_id: str = "hawkeye") -> dict[str, Any]:
     }
 
 
+_MOCK_EXTRA: list[TaskCard] = []
+_MOCK_SEQ = 80
+
+
+def remember_mock_task(card: TaskCard) -> TaskCard:
+    """Keep offline-created cards visible until process restart."""
+    global _MOCK_SEQ
+    _MOCK_SEQ += 1
+    if not card.page_id:
+        card.page_id = f"mock-new-{_MOCK_SEQ}"
+    if not card.task_id:
+        card.task_id = f"HK-{_MOCK_SEQ}"
+    _MOCK_EXTRA.insert(0, card)
+    return card
+
+
+def clear_mock_tasks() -> None:
+    _MOCK_EXTRA.clear()
+
+
 def mock_board_summary(board_id: str = "hawkeye") -> dict[str, Any]:
     """Offline fixture so the UI can be demoed without NOTION_TOKEN."""
     board = get_board(board_id)
@@ -537,13 +557,15 @@ def mock_board_summary(board_id: str = "hawkeye") -> dict[str, Any]:
             url="https://app.notion.com/",
         ),
     ]
+    extras = [t for t in _MOCK_EXTRA if (t.board_id or "hawkeye") == board_id]
+    cards = extras + sample
     counts: dict[str, int] = {}
-    for t in sample:
+    for t in cards:
         counts[t.status] = counts.get(t.status, 0) + 1
     return {
         "board": board.to_dict(),
-        "total": len(sample),
+        "total": len(cards),
         "counts": counts,
-        "tasks": [t.to_dict() for t in sample],
+        "tasks": [t.to_dict() for t in cards],
         "mock": True,
     }

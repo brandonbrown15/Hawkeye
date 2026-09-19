@@ -32,6 +32,8 @@ Overnight / continuous worker timers (separate from UI boot):
 
 The same dashboard works over Tailscale remote access — chat, controls, and status are identical on phone or laptop.
 
+The signed-in shell is **project-first**: a light navy + serif layout with a queue on the left and Talk to Hawkeye on the right. The chat Send control sits beside the composer so it stays clickable on phone and desktop. Inbox and autopilot sit on the Inbox pane.
+
 ## Remote monitoring (phone / laptop)
 
 ### Option A — Tailscale (recommended)

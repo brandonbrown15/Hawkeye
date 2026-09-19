@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#09090b" />
+  <meta name="theme-color" content="#002d62" />
   <title>{{PRODUCT}} · BrownHawke Engineering</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@400;700&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/app.css" />
 </head>
-<body class="app" data-pane="chat">
+<body class="app" data-pane="board" data-board-view="queue">
   <a class="skip-link" href="#workspace">Skip to workspace</a>
 
   <header class="top">
@@ -24,11 +24,11 @@
       />
       <div class="brand-copy">
         <p class="product">{{PRODUCT}}</p>
-        <p class="tagline">Boards, chat, and machine</p>
+        <p class="tagline">Queue work, then talk to Hawkeye</p>
       </div>
     </div>
     <nav class="app-nav" aria-label="Primary">
-      <a class="app-nav-link" href="#notionKanban" data-pane-view="board">Boards</a>
+      <a class="app-nav-link is-active" href="#notionKanban" data-pane-view="board">Projects</a>
       <a class="app-nav-link" href="#chatHeading" data-pane-view="chat">Chat</a>
       <a class="app-nav-link" href="#inboxHeading" data-pane-view="inbox">Inbox</a>
     </nav>
@@ -145,9 +145,13 @@
   <main class="pm-main" id="workspace">
     <div class="workspace">
       <div class="workspace-board">
+        <header class="pm-heading">
+          <h1 id="boardHeading">Projects</h1>
+          <p class="section-note">Add a task to the queue, then open a card when you need detail.</p>
+        </header>
         <section class="pm-toolbar" aria-label="Board controls">
           <div class="view-tabs" role="tablist">
-            <button type="button" class="view-tab is-active" data-view="notion">Notion boards</button>
+            <button type="button" class="view-tab is-active" data-view="notion">Team queue</button>
             <button type="button" class="view-tab" data-view="mine">My projects</button>
           </div>
           <div class="board-tabs" id="boardTabs" role="tablist"></div>
@@ -169,6 +173,27 @@
           </div>
         </section>
 
+        <form class="queue-composer" id="queueForm">
+          <label class="sr-only" for="queueName">New task name</label>
+          <input id="queueName" type="text" placeholder="Add a Ready task…" required autocomplete="off" />
+          <label class="sr-only" for="queuePriority">Priority</label>
+          <select id="queuePriority" aria-label="Priority">
+            <option value="P2">P2</option>
+            <option value="P0">P0</option>
+            <option value="P1">P1</option>
+            <option value="P3">P3</option>
+          </select>
+          <label class="sr-only" for="queueStatus">Status</label>
+          <select id="queueStatus" aria-label="Status">
+            <option value="Ready">Ready</option>
+            <option value="Backlog">Backlog</option>
+            <option value="Now">Now</option>
+            <option value="Next">Next</option>
+          </select>
+          <button type="submit" class="btn primary compact" id="queueAdd">Add to queue</button>
+        </form>
+        <p class="queue-hint" id="queueHint">Goes to the Hawkeye Build Queue as a Notion card.</p>
+
         <p class="pm-banner" id="pmBanner" hidden></p>
 
         <section class="pm-summary" aria-label="Board summary" id="notionSummary">
@@ -176,8 +201,14 @@
           <p class="section-note" id="boardMeta">Loading Notion board…</p>
         </section>
 
-        <section class="kanban" aria-labelledby="boardHeading" id="notionKanban">
-          <h1 id="boardHeading" class="sr-only">Project board</h1>
+        <div class="board-view-tabs" role="tablist" aria-label="Task layout">
+          <button type="button" class="view-tab is-active" data-board-view="queue">Queue</button>
+          <button type="button" class="view-tab" data-board-view="kanban">Board</button>
+        </div>
+
+        <section class="task-queue" id="taskQueue" aria-labelledby="boardHeading"></section>
+
+        <section class="kanban" aria-labelledby="boardHeading" id="notionKanban" hidden>
           <div class="kanban-columns" id="kanban">
             <div class="state-card" id="boardLoading">
               <p class="state-title">Loading the board</p>
@@ -211,12 +242,14 @@
             </div>
           </div>
         </div>
-        <form class="chat-form" id="chatForm">
-          <label for="chatInput" class="sr-only">Message</label>
-          <textarea id="chatInput" rows="3" placeholder="e.g. what's on the Hawkeye board? Enter to send, Shift+Enter for a new line." required></textarea>
+        <form class="chat-form" id="chatForm" novalidate>
+          <div class="chat-composer">
+            <label for="chatInput" class="sr-only">Message</label>
+            <textarea id="chatInput" rows="2" placeholder="Message Hawkeye… Enter to send."></textarea>
+            <button type="submit" class="btn primary" id="chatSend">Send</button>
+          </div>
           <div class="chat-actions">
             <label class="check-inline"><input type="checkbox" id="chatSeed" checked /> Seed Notion when useful</label>
-            <button type="submit" class="btn primary" id="chatSend">Send</button>
           </div>
         </form>
       </section>
@@ -239,6 +272,7 @@
       </div>
     </aside>
 
+    <div class="workspace-secondary">
     <section class="inbox" aria-labelledby="inboxHeading">
       <div class="inbox-head">
         <h2 id="inboxHeading">Email inbox</h2>
@@ -285,17 +319,18 @@
         <pre id="logText" class="log-pane" tabindex="0">(waiting…)</pre>
       </section>
     </details>
+    </div>
   </main>
 
   <nav class="pane-switch" aria-label="Workspace">
-    <button type="button" class="pane-btn" data-pane-view="board">Board</button>
-    <button type="button" class="pane-btn is-active" data-pane-view="chat">Chat</button>
+    <button type="button" class="pane-btn is-active" data-pane-view="board">Projects</button>
+    <button type="button" class="pane-btn" data-pane-view="chat">Chat</button>
     <button type="button" class="pane-btn" data-pane-view="inbox">Inbox</button>
   </nav>
 
+  <p id="toast" class="toast" role="status" aria-live="polite"></p>
   <footer class="foot">
     <p>BrownHawke Engineering · {{PRODUCT}} · Notion-backed team PM</p>
-    <p id="toast" class="toast" role="status" aria-live="polite"></p>
   </footer>
 
   <script>window.__AUTOCODE_TOKEN__ = "{{TOKEN}}";</script>

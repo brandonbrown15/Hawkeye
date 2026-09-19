@@ -5,6 +5,7 @@
   let currentBoard = "hawkeye";
   let boardCache = null;
   let selectedTask = null;
+  let boardView = "queue";
 
   const BUILD_STATUSES = ["Ready", "Running", "Needs review", "Blocked", "Backlog", "Done"];
   const ROSE_STATUSES = ["Now", "Next", "Blocked", "Done", "Parked"];
@@ -35,10 +36,10 @@
       const ask = document.createElement("button");
       ask.type = "button";
       ask.className = "chip-btn";
-      ask.textContent = "Ask Hawkeye";
+      ask.textContent = "Add a task";
       ask.addEventListener("click", () => {
-        setPane("chat");
-        const input = document.getElementById("chatInput");
+        setPane("board");
+        const input = document.getElementById("queueName");
         if (input) input.focus();
       });
       wrap.appendChild(ask);
@@ -257,13 +258,62 @@
     }
   }
 
-  function renderKanban(data) {
-    const board = data.board || {};
-    const tasks = data.tasks || [];
-    const counts = data.counts || {};
-    const filter = document.getElementById("statusFilter").value || "all";
-    const visible = filter === "all" ? tasks : tasks.filter((t) => t.status === filter);
+  function taskMetaChips(task, metaEl) {
+    if (task.status) {
+      const c = document.createElement("span");
+      c.className = "chip";
+      c.textContent = task.status;
+      metaEl.appendChild(c);
+    }
+    if (task.priority) {
+      const c = document.createElement("span");
+      c.className = `chip ${(task.priority || "").toLowerCase()}`;
+      c.textContent = task.priority;
+      metaEl.appendChild(c);
+    }
+    if (task.area) {
+      const c = document.createElement("span");
+      c.className = "chip";
+      c.textContent = task.area;
+      metaEl.appendChild(c);
+    }
+    if (task.complexity) {
+      const c = document.createElement("span");
+      c.className = "chip";
+      c.textContent = task.complexity;
+      metaEl.appendChild(c);
+    }
+  }
 
+  function syncQueueComposer(board) {
+    const form = document.getElementById("queueForm");
+    const hint = document.getElementById("queueHint");
+    const projects = board && board.kind === "projects";
+    if (form) {
+      form.hidden = !!projects;
+      [...form.elements].forEach((el) => { el.disabled = !!projects; });
+    }
+    if (hint) {
+      hint.textContent = projects
+        ? "ROSE Projects is read-only here. Switch to the Hawkeye board to queue work."
+        : `Goes to ${board && board.name ? board.name : "the Hawkeye Build Queue"} as a Notion card.`;
+    }
+  }
+
+  function applyBoardView() {
+    const queue = document.getElementById("taskQueue");
+    const kanban = document.getElementById("notionKanban");
+    if (queue) queue.hidden = boardView !== "queue";
+    if (kanban) kanban.hidden = boardView !== "kanban";
+    document.querySelectorAll("button[data-board-view]").forEach((btn) => {
+      btn.classList.toggle("is-active", btn.getAttribute("data-board-view") === boardView);
+    });
+    document.body.dataset.boardView = boardView;
+  }
+
+  function renderBoardChrome(data, visible) {
+    const board = data.board || {};
+    const counts = data.counts || {};
     const meta = document.getElementById("boardMeta");
     const bits = [
       `${visible.length} task${visible.length === 1 ? "" : "s"}`,
@@ -271,36 +321,95 @@
       data.mock || data.offline ? "sample / offline data" : "live from Notion",
     ];
     if (data.warning) bits.push(data.warning);
-    meta.textContent = bits.join(" · ");
+    if (meta) meta.textContent = bits.join(" · ");
 
     const banner = document.getElementById("pmBanner");
-    if (data.offline || data.warning) {
-      banner.hidden = false;
-      banner.textContent = data.warning
-        || "Notion token not connected — showing sample board. Add Notion under Account → Connections for live team data.";
-    } else {
-      banner.hidden = true;
+    if (banner) {
+      if (data.offline || data.warning) {
+        banner.hidden = false;
+        banner.textContent = data.warning
+          || "Notion token not connected — showing sample board. Add Notion under Account → Connections for live team data.";
+      } else {
+        banner.hidden = true;
+      }
     }
+    syncQueueComposer(board);
+    applyBoardView();
 
     const pills = document.getElementById("countPills");
-    pills.innerHTML = "";
-    const pillOrder = columnOrder(board.kind, counts);
-    const seen = new Set();
-    for (const status of pillOrder) {
-      seen.add(status);
-      const n = counts[status] || 0;
-      const span = document.createElement("span");
-      span.className = "count-pill" + (n ? "" : " is-empty");
-      span.textContent = `${status} ${n}`;
-      pills.appendChild(span);
+    if (pills) {
+      pills.innerHTML = "";
+      const pillOrder = columnOrder(board.kind, counts);
+      const seen = new Set();
+      for (const status of pillOrder) {
+        seen.add(status);
+        const n = counts[status] || 0;
+        const span = document.createElement("span");
+        span.className = "count-pill" + (n ? "" : " is-empty");
+        span.textContent = `${status} ${n}`;
+        pills.appendChild(span);
+      }
+      for (const [status, n] of Object.entries(counts)) {
+        if (seen.has(status) || !n) continue;
+        const span = document.createElement("span");
+        span.className = "count-pill";
+        span.textContent = `${status} ${n}`;
+        pills.appendChild(span);
+      }
     }
-    for (const [status, n] of Object.entries(counts)) {
-      if (seen.has(status) || !n) continue;
-      const span = document.createElement("span");
-      span.className = "count-pill";
-      span.textContent = `${status} ${n}`;
-      pills.appendChild(span);
+  }
+
+  function renderQueue(data) {
+    const board = data.board || {};
+    const tasks = data.tasks || [];
+    const filter = document.getElementById("statusFilter").value || "all";
+    const visible = filter === "all" ? tasks : tasks.filter((t) => t.status === filter);
+    const list = document.getElementById("taskQueue");
+    if (!list) return;
+    list.innerHTML = "";
+    if (!visible.length) {
+      const empty = document.createElement("div");
+      empty.className = "state-card queue-empty";
+      const title = document.createElement("p");
+      title.className = "state-title";
+      title.textContent = filter === "all" ? "Queue is empty" : `Nothing in ${filter}`;
+      const copy = document.createElement("p");
+      copy.className = "state-copy";
+      copy.textContent = board.kind === "projects"
+        ? "Open a ROSE card when one is shared, or switch to the Hawkeye board to add work."
+        : "Add a Ready task above, or ask Hawkeye in chat.";
+      empty.append(title, copy);
+      list.appendChild(empty);
+      return;
     }
+    const rank = { P0: 0, P1: 1, P2: 2, P3: 3 };
+    const statusRank = columnOrder(board.kind, data.counts);
+    const sorted = visible.slice().sort((a, b) => {
+      const sa = statusRank.indexOf(a.status);
+      const sb = statusRank.indexOf(b.status);
+      if (sa !== sb) return (sa < 0 ? 99 : sa) - (sb < 0 ? 99 : sb);
+      return (rank[a.priority] ?? 9) - (rank[b.priority] ?? 9);
+    });
+    for (const t of sorted) {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "queue-row";
+      row.innerHTML = `<p class="tid"></p><p class="tname"></p><div class="tmeta"></div>`;
+      row.querySelector(".tid").textContent = t.task_id || "—";
+      row.querySelector(".tname").textContent = t.name || "(untitled)";
+      taskMetaChips(t, row.querySelector(".tmeta"));
+      row.addEventListener("click", () => openDrawer(t, board.kind));
+      list.appendChild(row);
+    }
+  }
+
+  function renderKanban(data) {
+    const board = data.board || {};
+    const tasks = data.tasks || [];
+    const counts = data.counts || {};
+    const filter = document.getElementById("statusFilter").value || "all";
+    const visible = filter === "all" ? tasks : tasks.filter((t) => t.status === filter);
+    renderBoardChrome(data, visible);
 
     const kanban = document.getElementById("kanban");
     kanban.innerHTML = "";
@@ -425,10 +534,9 @@
 
   function renderBoardError(message) {
     const kanban = document.getElementById("kanban");
+    const queue = document.getElementById("taskQueue");
     const meta = document.getElementById("boardMeta");
     if (meta) meta.textContent = "Board unavailable";
-    if (!kanban) return;
-    kanban.innerHTML = "";
     const card = document.createElement("div");
     card.className = "state-card is-error";
     const title = document.createElement("p");
@@ -438,7 +546,14 @@
     copy.className = "state-copy";
     copy.textContent = message || "Check Connections → Notion, then hit Refresh.";
     card.append(title, copy);
-    kanban.appendChild(card);
+    if (kanban) {
+      kanban.innerHTML = "";
+      kanban.appendChild(card.cloneNode(true));
+    }
+    if (queue) {
+      queue.innerHTML = "";
+      queue.appendChild(card);
+    }
   }
 
   async function loadBoard() {
@@ -449,6 +564,7 @@
       const data = await get(`/api/tasks?board=${encodeURIComponent(currentBoard)}&status=${encodeURIComponent(status)}&limit=100`);
       boardCache = data;
       renderKanban(data);
+      renderQueue(data);
       document.querySelectorAll(".board-tab").forEach((btn) => {
         btn.setAttribute("aria-selected", btn.dataset.board === currentBoard ? "true" : "false");
       });
@@ -801,9 +917,11 @@
   }
 
   function resetChatSend(sendBtn) {
-    if (!sendBtn) return;
-    sendBtn.disabled = false;
-    sendBtn.textContent = "Send";
+    const btn = sendBtn || document.getElementById("chatSend");
+    if (!btn) return;
+    btn.disabled = false;
+    btn.removeAttribute("disabled");
+    btn.textContent = "Send";
   }
 
   const chatForm = document.getElementById("chatForm");
@@ -812,7 +930,11 @@
     chatInput.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) {
         ev.preventDefault();
-        if (chatForm) chatForm.requestSubmit();
+        if (chatForm && typeof chatForm.requestSubmit === "function") {
+          chatForm.requestSubmit();
+        } else if (chatForm) {
+          chatForm.dispatchEvent(new Event("submit", { cancelable: true, bubbles: true }));
+        }
       }
     });
   }
@@ -828,13 +950,19 @@
   if (chatForm) {
     chatForm.addEventListener("submit", async (ev) => {
       ev.preventDefault();
+      ev.stopPropagation();
       const input = document.getElementById("chatInput");
       const seed = document.getElementById("chatSeed");
-      const msg = (input.value || "").trim();
-      if (!msg) return;
+      const msg = ((input && input.value) || "").trim();
+      if (!msg) {
+        if (input) input.focus();
+        return;
+      }
       const sendBtn = document.getElementById("chatSend");
-      sendBtn.disabled = true;
-      sendBtn.textContent = "Sending…";
+      if (sendBtn) {
+        sendBtn.disabled = true;
+        sendBtn.textContent = "Sending…";
+      }
       // Prior turns only — server adds the current message itself.
       const prior = chatHistory.slice();
       appendChat("you", msg);
@@ -895,6 +1023,47 @@
       }
     });
   }
+
+  const queueForm = document.getElementById("queueForm");
+  if (queueForm) {
+    queueForm.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      const nameEl = document.getElementById("queueName");
+      const priEl = document.getElementById("queuePriority");
+      const stEl = document.getElementById("queueStatus");
+      const addBtn = document.getElementById("queueAdd");
+      const name = ((nameEl && nameEl.value) || "").trim();
+      if (!name) {
+        if (nameEl) nameEl.focus();
+        return;
+      }
+      if (addBtn) addBtn.disabled = true;
+      try {
+        const data = await post("/api/tasks", {
+          name,
+          priority: (priEl && priEl.value) || "P2",
+          status: (stEl && stEl.value) || "Ready",
+          board: currentBoard,
+        });
+        if (nameEl) nameEl.value = "";
+        toast(data.task && data.task.task_id
+          ? `Queued ${data.task.task_id}`
+          : "Task added to the queue");
+        await loadBoard();
+      } catch (e) {
+        toast(String(e.message || e));
+      } finally {
+        if (addBtn) addBtn.disabled = false;
+      }
+    });
+  }
+
+  document.querySelectorAll("button[data-board-view]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      boardView = btn.getAttribute("data-board-view") === "kanban" ? "kanban" : "queue";
+      applyBoardView();
+    });
+  });
 
   loadProjects().catch((e) => {
     toast(String(e.message || e));
@@ -1290,24 +1459,30 @@
     const q = new URLSearchParams(location.search).get("pane");
     if (q) {
       setPane(q);
-    } else if (window.matchMedia("(max-width: 980px)").matches) {
-      // Phone: never land on a long board scroll. ?pane= still wins.
-      setPane("chat");
     } else {
       const stored = sessionStorage.getItem("hawkeye-pane");
-      if (stored) setPane(stored);
+      setPane(stored === "chat" || stored === "inbox" ? stored : "board");
     }
   } catch (_) { /* ignore */ }
 
-  document.querySelectorAll(".view-tab").forEach((btn) => {
+  document.querySelectorAll(".view-tab[data-view]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      document.querySelectorAll(".view-tab").forEach((b) => b.classList.toggle("is-active", b === btn));
+      document.querySelectorAll(".view-tab[data-view]").forEach((b) => b.classList.toggle("is-active", b === btn));
       const mine = btn.dataset.view === "mine";
       document.getElementById("notionSummary").hidden = mine;
-      document.getElementById("notionKanban").hidden = mine;
+      document.getElementById("notionKanban").hidden = mine || boardView !== "kanban";
       document.getElementById("boardTabs").hidden = mine;
       document.getElementById("statusFilter").hidden = mine;
       document.getElementById("mineProjects").hidden = !mine;
+      const queue = document.getElementById("taskQueue");
+      const queueFormEl = document.getElementById("queueForm");
+      const queueHint = document.getElementById("queueHint");
+      const viewTabs = document.querySelector(".board-view-tabs");
+      if (queue) queue.hidden = mine || boardView !== "queue";
+      if (queueFormEl) queueFormEl.hidden = mine;
+      if (queueHint) queueHint.hidden = mine;
+      if (viewTabs) viewTabs.hidden = mine;
+      if (!mine && boardCache) syncQueueComposer(boardCache.board || {});
       const banner = document.getElementById("pmBanner");
       if (banner) {
         banner.hidden = mine || !(boardCache && (boardCache.offline || boardCache.warning));

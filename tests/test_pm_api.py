@@ -108,6 +108,7 @@ class PmApiTests(unittest.TestCase):
         ui_auth.clear_sessions()
         ui_auth.clear_users_cache()
         ui_server.STATE = self.tmp
+        notion_pm.clear_mock_tasks()
 
     def tearDown(self) -> None:
         for k, v in self._env.items():
@@ -154,9 +155,38 @@ class PmApiTests(unittest.TestCase):
                 updated = json.loads(resp.read().decode())
             self.assertTrue(updated["ok"])
             self.assertEqual(updated["task"]["status"], "Done")
+
+            create = request.Request(
+                f"http://127.0.0.1:{port}/api/tasks",
+                data=json.dumps({
+                    "name": "Queue from API test",
+                    "priority": "P1",
+                    "status": "Ready",
+                    "token": tok,
+                }).encode(),
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Autocode-Token": tok,
+                },
+                method="POST",
+            )
+            with request.urlopen(create, timeout=5) as resp:
+                created = json.loads(resp.read().decode())
+            self.assertTrue(created["ok"])
+            self.assertEqual(created["task"]["name"], "Queue from API test")
+            self.assertEqual(created["task"]["priority"], "P1")
+            self.assertTrue(created["task"]["task_id"])
+
+            with request.urlopen(
+                f"http://127.0.0.1:{port}/api/tasks?board=hawkeye&status=all", timeout=5
+            ) as resp:
+                after = json.loads(resp.read().decode())
+            names = [t["name"] for t in after["tasks"]]
+            self.assertIn("Queue from API test", names)
         finally:
             httpd.shutdown()
             httpd.server_close()
+            notion_pm.clear_mock_tasks()
 
 
 if __name__ == "__main__":
