@@ -37,12 +37,12 @@
         <span class="pulse" aria-hidden="true"></span>
         <span id="phaseLabel">Ready</span>
       </div>
-      <label class="local-only-switch" title="Per signed-in account: when on, your chats stay on free Ollama (no Cursor/Grok)">
+      <label class="local-only-switch" title="Local only = Jetson replies only. Turn off for Cursor/Grok and Brave web search.">
         <input type="checkbox" id="localOnlyToggle" />
         <span class="switch-track" aria-hidden="true"></span>
         <span class="switch-copy">
           <span class="switch-title">Local only</span>
-          <span class="switch-hint" id="localOnlyHint">your account</span>
+          <span class="switch-hint" id="localOnlyHint">Jetson replies</span>
         </span>
       </label>
       <div class="header-btns">
@@ -71,6 +71,12 @@
       </nav>
       <section class="account-pane is-active" data-pane="profile">
         <p class="section-note">First name, last name, and employee number are required for your Hawkeye profile.</p>
+        <label for="themePref">Appearance</label>
+        <select id="themePref" aria-label="Color theme">
+          <option value="system">Match device</option>
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+        </select>
         <label for="profFirst">First name</label>
         <input id="profFirst" />
         <label for="profLast">Last name</label>
@@ -227,10 +233,16 @@
         <header class="chat-head">
           <div>
             <h2 id="chatHeading">Talk to Hawkeye</h2>
-            <p class="section-note" id="chatNote">Plan, research, or drive the Notion board. Local only is per account.</p>
+            <p class="section-note" id="chatNote">Plan, research, or drive the Notion board. Local only keeps replies on the Jetson — turn it off for cloud or Brave search.</p>
           </div>
           <p class="chat-status" id="chatStatus" hidden></p>
         </header>
+        <div class="host-strip" id="hostStrip" aria-label="Hawkeye host performance">
+          <span>CPU <strong id="hostCpu">—</strong></span>
+          <span>GPU <strong id="hostGpu">—</strong></span>
+          <span>RAM <strong id="hostRam">—</strong></span>
+          <span>Temp <strong id="hostTemp">—</strong></span>
+        </div>
         <div id="chatLog" class="chat-log" role="log" aria-live="polite">
           <div class="chat-empty" id="chatEmpty">
             <p class="state-title">Ready when you are</p>

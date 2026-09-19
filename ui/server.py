@@ -1522,6 +1522,10 @@ class Handler(BaseHTTPRequestHandler):
         self._bind_request_user()
         if path == "/api/status":
             return self._send(*json_response(snapshot()))
+        if path == "/api/host":
+            from ui import host as host_mod
+
+            return self._send(*json_response(host_mod.snapshot()))
         if path == "/api/ready":
             return self._send(*json_response(readiness(user=self._current_user())))
         if path == "/api/settings":

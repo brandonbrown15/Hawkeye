@@ -781,10 +781,16 @@ class UiHelpersTests(unittest.TestCase):
         self.assertIn("Add to queue", html)
         self.assertIn('id="taskQueue"', html)
         self.assertIn('data-board-view="queue"', html)
+        self.assertIn('id="hostStrip"', html)
+        self.assertIn("/api/host", js)
+        self.assertIn("prefers-color-scheme: dark", css)
+        self.assertIn('html[data-theme="dark"]', css)
+        self.assertIn('html[data-theme="light"]', css)
         self.assertIn('"/api/tasks"', js)
         self.assertIn("body.app", css)
         self.assertIn("overflow: hidden", css)
         self.assertIn("workspace-secondary", html)
+        self.assertIn("Jetson replies only", html)
 
 if __name__ == "__main__":
     unittest.main()

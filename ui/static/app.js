@@ -190,6 +190,54 @@
     syncLocalOnlyToggle(!!data.personal_local_only, data.settings_user);
   }
 
+  function applyTheme(pref) {
+    const mode = pref === "light" || pref === "dark" ? pref : "system";
+    try { localStorage.setItem("hawkeye-theme", mode); } catch (_) { /* ignore */ }
+    if (mode === "system") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.dataset.theme = mode;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    const dark = mode === "dark" || (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    if (meta) meta.setAttribute("content", dark ? "#0e1624" : "#002d62");
+    const sel = document.getElementById("themePref");
+    if (sel && sel.value !== mode) sel.value = mode;
+  }
+
+  try {
+    applyTheme(localStorage.getItem("hawkeye-theme") || "system");
+  } catch (_) {
+    applyTheme("system");
+  }
+  const themePref = document.getElementById("themePref");
+  if (themePref) {
+    themePref.addEventListener("change", () => applyTheme(themePref.value));
+  }
+
+  function fmtHost(value, suffix) {
+    if (value == null || Number.isNaN(value)) return "—";
+    return `${value}${suffix || ""}`;
+  }
+
+  function renderHost(data) {
+    const cpu = document.getElementById("hostCpu");
+    const gpu = document.getElementById("hostGpu");
+    const ram = document.getElementById("hostRam");
+    const temp = document.getElementById("hostTemp");
+    if (cpu) cpu.textContent = data.cpu_pct != null ? `${data.cpu_pct}%` : (data.load1 != null ? `load ${data.load1}` : "—");
+    if (gpu) gpu.textContent = data.gpu_pct != null ? `${data.gpu_pct}%` : "—";
+    if (ram) {
+      ram.textContent = data.ram_pct != null
+        ? `${data.ram_pct}%`
+        : "—";
+    }
+    if (temp) temp.textContent = data.temp_c != null ? `${data.temp_c}°` : "—";
+  }
+
+  async function loadHost() {
+    try {
+      renderHost(await get("/api/host"));
+    } catch (_) { /* strip stays on em dashes */ }
+  }
+
   function syncLocalOnlyToggle(on, user) {
     const toggle = document.getElementById("localOnlyToggle");
     const wrap = toggle && toggle.closest(".local-only-switch");
@@ -199,12 +247,12 @@
     if (wrap) wrap.classList.toggle("is-on", !!on);
     const who = user && user.includes("@") ? user.split("@")[0] : "your account";
     if (hint) {
-      hint.textContent = on ? `${who}: no Cursor/Grok` : `${who}: escalate ok`;
+      hint.textContent = on ? `${who}: Jetson only` : `${who}: cloud/search ok`;
     }
     if (note) {
       note.textContent = on
-        ? `Local only on for ${who} — replies stay on the Jetson.`
-        : "Plan, research, or drive the Notion board. Local only is per account.";
+        ? `Local only on for ${who} — Jetson replies only. Turn off for Cursor/Grok or Brave search.`
+        : "Plan, research, or drive the Notion board. Turn Local only off for cloud or Brave search.";
     }
   }
 
@@ -1071,8 +1119,10 @@
   });
   refreshOps().catch((e) => toast(String(e.message || e)));
   loadLocalOnlySetting().catch(() => {});
+  loadHost().catch(() => {});
   loadInbox().catch(() => {});
   setInterval(() => { refreshOps().catch(() => {}); }, 4000);
+  setInterval(() => { loadHost().catch(() => {}); }, 3000);
   setInterval(() => { loadBoard().catch(() => {}); }, 20000);
   setInterval(() => { loadInbox().catch(() => {}); }, 30000);
 
