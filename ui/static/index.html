@@ -3,15 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#0b1220" />
+  <meta name="theme-color" content="#09090b" />
   <title>{{PRODUCT}} · BrownHawke Engineering</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@400;700&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/app.css" />
 </head>
 <body class="app" data-pane="chat">
-  <div class="atmosphere" aria-hidden="true"></div>
   <a class="skip-link" href="#workspace">Skip to workspace</a>
 
   <header class="top">
@@ -25,7 +24,7 @@
       />
       <div class="brand-copy">
         <p class="product">{{PRODUCT}}</p>
-        <p class="tagline">Engineering command center</p>
+        <p class="tagline">Boards, chat, and machine</p>
       </div>
     </div>
     <nav class="app-nav" aria-label="Primary">
@@ -57,11 +56,11 @@
     </div>
   </header>
 
-  <dialog class="account-dialog" id="accountDialog">
-    <form method="dialog" class="account-panel">
+  <dialog class="account-dialog" id="accountDialog" aria-labelledby="accountTitle">
+    <div class="account-panel">
       <header class="account-panel-head">
-        <h2>Your account</h2>
-        <button type="submit" class="btn ghost compact" value="close">Close</button>
+        <h2 id="accountTitle">Account</h2>
+        <button type="button" class="btn ghost compact overlay-close" id="accountClose">Close</button>
       </header>
       <nav class="account-tabs" role="tablist">
         <button type="button" class="account-tab is-active" data-tab="profile">Profile</button>
@@ -133,7 +132,7 @@
           </div>
         </div>
       </section>
-    </form>
+    </div>
   </dialog>
 
   <main class="pm-main" id="workspace">
@@ -218,7 +217,7 @@
 
     <aside class="task-drawer" id="taskDrawer" hidden>
       <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
-        <button type="button" class="btn ghost compact drawer-close" id="drawerClose">Close</button>
+        <button type="button" class="btn ghost compact overlay-close drawer-close" id="drawerClose">Close</button>
         <p class="drawer-id" id="drawerId"></p>
         <h2 id="drawerTitle"></h2>
         <dl class="drawer-meta" id="drawerMeta"></dl>

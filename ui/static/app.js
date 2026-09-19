@@ -394,8 +394,33 @@
   }
 
   function closeDrawer() {
-    document.getElementById("taskDrawer").hidden = true;
+    const drawer = document.getElementById("taskDrawer");
+    if (drawer) drawer.hidden = true;
     selectedTask = null;
+  }
+
+  function closeAccount() {
+    const dlg = document.getElementById("accountDialog");
+    if (!dlg) return;
+    if (typeof dlg.close === "function") {
+      if (dlg.open) dlg.close();
+    } else {
+      dlg.removeAttribute("open");
+    }
+  }
+
+  function closeTopOverlay() {
+    const dlg = document.getElementById("accountDialog");
+    if (dlg && dlg.open) {
+      closeAccount();
+      return true;
+    }
+    const drawer = document.getElementById("taskDrawer");
+    if (drawer && !drawer.hidden) {
+      closeDrawer();
+      return true;
+    }
+    return false;
   }
 
   function renderBoardError(message) {
@@ -592,10 +617,45 @@
       if (input) input.focus();
     });
   }
-  document.getElementById("drawerClose").addEventListener("click", closeDrawer);
-  document.getElementById("taskDrawer").addEventListener("click", (ev) => {
-    if (ev.target.id === "taskDrawer") closeDrawer();
-  });
+  const drawerClose = document.getElementById("drawerClose");
+  if (drawerClose) {
+    drawerClose.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      closeDrawer();
+    });
+  }
+  const taskDrawer = document.getElementById("taskDrawer");
+  if (taskDrawer) {
+    taskDrawer.addEventListener("click", (ev) => {
+      if (ev.target === taskDrawer) closeDrawer();
+    });
+  }
+  const accountClose = document.getElementById("accountClose");
+  if (accountClose) {
+    accountClose.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      closeAccount();
+    });
+  }
+  const accountDialog = document.getElementById("accountDialog");
+  if (accountDialog) {
+    accountDialog.addEventListener("click", (ev) => {
+      if (ev.target === accountDialog) closeAccount();
+    });
+    accountDialog.addEventListener("cancel", (ev) => {
+      ev.preventDefault();
+      closeAccount();
+    });
+  }
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Escape") return;
+    if (closeTopOverlay()) {
+      ev.preventDefault();
+      ev.stopPropagation();
+    }
+  }, true);
   document.getElementById("drawerSave").addEventListener("click", async () => {
     if (!selectedTask) return;
     const status = document.getElementById("drawerStatus").value;
