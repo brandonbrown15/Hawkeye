@@ -89,7 +89,7 @@ cd ~/Hawkeye
 
 ```bash
 # Work users (brandon@ already seeded in config/users.json)
-python3 scripts/set_work_user.py --email teammate@brownhawke.engineering
+./scripts/hawkeye accounts set-password --email teammate@brownhawke.engineering
 
 # Notion
 ./scripts/connect_notion.sh
@@ -197,7 +197,7 @@ HAWKEYE_EMBED_MODEL=nomic-embed-text
 Add teammates:
 
 ```bash
-python3 scripts/set_work_user.py --email alex@brownhawke.engineering
+./scripts/hawkeye accounts set-password --email alex@brownhawke.engineering
 ```
 
 ### 3. Notion PM boards
@@ -351,6 +351,7 @@ More: [docs/architecture.md](docs/architecture.md) · [docs/how-ai-talks.md](doc
 | [docs/memory.md](docs/memory.md) | Vector memory |
 | [docs/research.md](docs/research.md) | Deep web research |
 | [docs/mail.md](docs/mail.md) | Email inbox + answer |
+| [docs/login.md](docs/login.md) | Login path, failure modes, add Mark on the Jetson |
 | [docs/accounts.md](docs/accounts.md) | Per-user connections, projects, DMs |
 | [docs/security.md](docs/security.md) | Login, tunnel, memory privacy |
 | [docs/notion-setup.md](docs/notion-setup.md) | Notion provision / seed |
@@ -370,7 +371,7 @@ Notion handoff (workspace): see **Hawkeye** hub → *Handoff — Hawkeye Cursor 
 | `Permission denied` cloning to `/opt/hawkeye` | Need sudo ownership, **or** clone to `~/Hawkeye` instead |
 | `syntax error near unexpected token '('` | Pasted a Markdown comment line (`# Recommended — …`) — paste only the `git` / `cd` / `./scripts/...` lines |
 | `hawkeye.brownhawke.engineering` won’t load | DNS/tunnel not created yet, **or** Jetson/cloudflared offline |
-| UI asks for login / rejects email | Must be `@brownhawke.engineering`; check `config/users.json` |
+| UI asks for login / rejects email | Must be `@brownhawke.engineering`; reset with `./scripts/hawkeye accounts set-password` — see [docs/login.md](docs/login.md) |
 | Empty / sample board | Missing `NOTION_TOKEN` or integration not shared on the DB |
 | Chat says local model unavailable | Start Ollama; run `./ollama/create_coder_64k.sh` |
 | UI gone after reboot | `./scripts/install_hawkeye_autostart.sh` (+ `loginctl` linger) |

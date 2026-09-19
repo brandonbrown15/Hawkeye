@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Hawkeye admin CLI. Example:
+#   ./scripts/hawkeye accounts set-password --email mark@brownhawke.engineering
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$ROOT"
+# shellcheck disable=SC1091
+[[ -f "$ROOT/.env" ]] && set -a && source "$ROOT/.env" && set +a
+exec python3 -m ui.accounts_cli "$@"

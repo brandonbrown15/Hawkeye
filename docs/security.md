@@ -27,7 +27,7 @@ Only `@brownhawke.engineering` addresses can sign in. Password hashes live in
 `config/users.json` (never commit plaintext passwords).
 
 ```bash
-python3 scripts/set_work_user.py --email teammate@brownhawke.engineering
+./scripts/hawkeye accounts set-password --email teammate@brownhawke.engineering
 # .env:
 AUTOCODE_PRIVATE_MODE=1
 HAWKEYE_ALLOWED_EMAIL_DOMAIN=brownhawke.engineering
