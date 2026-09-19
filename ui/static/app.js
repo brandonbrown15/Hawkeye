@@ -86,8 +86,19 @@
     let label = phase;
     if (ctl.abort) { phase = "aborted"; label = "aborting"; }
     else if (ctl.paused) { phase = "paused"; label = "paused"; }
+    const PHASE_LABELS = {
+      idle: "Ready",
+      starting: "Starting",
+      routing: "Routing",
+      running_local: "Local",
+      escalating: "Escalating",
+      paused: "Paused",
+      aborted: "Stopped",
+      aborting: "Stopping",
+      done: "Done",
+    };
     document.getElementById("liveChip").dataset.phase = phase;
-    document.getElementById("phaseLabel").textContent = label;
+    document.getElementById("phaseLabel").textContent = PHASE_LABELS[label] || PHASE_LABELS[phase] || label;
     document.getElementById("statusLede").textContent = phaseSentence(snap);
     document.getElementById("taskVal").textContent =
       [st.task_id, st.task_name].filter(Boolean).join(" — ") || "—";
@@ -274,8 +285,8 @@
       }
       if (!colTasks.length) {
         const empty = document.createElement("p");
-        empty.className = "section-note";
-        empty.textContent = "No tasks";
+        empty.className = "col-empty";
+        empty.textContent = "Nothing in this column.";
         col.appendChild(empty);
       }
       kanban.appendChild(col);
@@ -325,15 +336,39 @@
     selectedTask = null;
   }
 
+  function renderBoardError(message) {
+    const kanban = document.getElementById("kanban");
+    const meta = document.getElementById("boardMeta");
+    if (meta) meta.textContent = "Board unavailable";
+    if (!kanban) return;
+    kanban.innerHTML = "";
+    const card = document.createElement("div");
+    card.className = "state-card is-error";
+    const title = document.createElement("p");
+    title.className = "state-title";
+    title.textContent = "Could not load the board";
+    const copy = document.createElement("p");
+    copy.className = "state-copy";
+    copy.textContent = message || "Check Connections → Notion, then hit Refresh.";
+    card.append(title, copy);
+    kanban.appendChild(card);
+  }
+
   async function loadBoard() {
     const status = document.getElementById("statusFilter").value || "all";
-    const data = await get(`/api/tasks?board=${encodeURIComponent(currentBoard)}&status=${encodeURIComponent(status)}&limit=100`);
-    boardCache = data;
-    renderKanban(data);
-    // Sync tab selection
-    document.querySelectorAll(".board-tab").forEach((btn) => {
-      btn.setAttribute("aria-selected", btn.dataset.board === currentBoard ? "true" : "false");
-    });
+    const meta = document.getElementById("boardMeta");
+    if (meta && !boardCache) meta.textContent = "Loading Notion board…";
+    try {
+      const data = await get(`/api/tasks?board=${encodeURIComponent(currentBoard)}&status=${encodeURIComponent(status)}&limit=100`);
+      boardCache = data;
+      renderKanban(data);
+      document.querySelectorAll(".board-tab").forEach((btn) => {
+        btn.setAttribute("aria-selected", btn.dataset.board === currentBoard ? "true" : "false");
+      });
+    } catch (e) {
+      if (!boardCache) renderBoardError(String(e.message || e));
+      throw e;
+    }
   }
 
   async function loadProjects() {
@@ -360,8 +395,8 @@
         const empty = document.createElement("p");
         empty.className = "inbox-empty";
         empty.textContent = data.enabled
-          ? "No messages yet."
-          : "Enable mail in .env, then point Resend webhook to /api/webhooks/resend.";
+          ? "Inbox is connected — nothing waiting yet."
+          : "Mail is off. Connect Resend under Account → Connections, or enable HAWKEYE_MAIL_ENABLED.";
         list.appendChild(empty);
         return;
       }
@@ -371,7 +406,7 @@
     } catch (e) {
       list.innerHTML = "";
       const err = document.createElement("p");
-      err.className = "inbox-empty";
+      err.className = "inbox-empty state-card is-error";
       err.textContent = String(e.message || e);
       list.appendChild(err);
     }
@@ -568,14 +603,50 @@
 
   let chatHistory = [];
 
-  function appendChat(role, text) {
+  function setChatStatus(text, kind) {
+    const el = document.getElementById("chatStatus");
+    if (!el) return;
+    if (!text) {
+      el.hidden = true;
+      el.textContent = "";
+      el.removeAttribute("data-kind");
+      return;
+    }
+    el.hidden = false;
+    el.textContent = text;
+    if (kind) el.dataset.kind = kind;
+    else el.removeAttribute("data-kind");
+  }
+
+  function hideChatEmpty() {
+    const empty = document.getElementById("chatEmpty");
+    if (empty) empty.hidden = true;
+  }
+
+  function appendChat(role, text, meta) {
     const log = document.getElementById("chatLog");
     if (!log) return;
-    const line = document.createElement("div");
-    line.className = `chat-line ${role}`;
+    hideChatEmpty();
+    const row = document.createElement("article");
+    row.className = `chat-msg ${role}`;
     const who = role === "you" ? "You" : role === "local" ? "Hawkeye" : role === "cloud" ? "Cloud" : "System";
-    line.textContent = `${who}: ${text}`;
-    log.appendChild(line);
+    const head = document.createElement("div");
+    head.className = "chat-msg-head";
+    const name = document.createElement("span");
+    name.className = "chat-msg-who";
+    name.textContent = who;
+    head.appendChild(name);
+    if (meta && (meta.provider || meta.label)) {
+      const chip = document.createElement("span");
+      chip.className = "chat-chip";
+      chip.textContent = meta.label || meta.provider;
+      head.appendChild(chip);
+    }
+    const body = document.createElement("p");
+    body.className = "chat-msg-body";
+    body.textContent = text;
+    row.append(head, body);
+    log.appendChild(row);
     log.scrollTop = log.scrollHeight;
     if (role === "you") {
       chatHistory.push({ role: "user", content: text });
@@ -586,6 +657,24 @@
   }
 
   const chatForm = document.getElementById("chatForm");
+  const chatInput = document.getElementById("chatInput");
+  if (chatInput) {
+    chatInput.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) {
+        ev.preventDefault();
+        if (chatForm) chatForm.requestSubmit();
+      }
+    });
+  }
+  const chatSuggestions = document.getElementById("chatSuggestions");
+  if (chatSuggestions && chatInput) {
+    chatSuggestions.addEventListener("click", (ev) => {
+      const btn = ev.target.closest("[data-suggest]");
+      if (!btn) return;
+      chatInput.value = btn.getAttribute("data-suggest") || "";
+      chatInput.focus();
+    });
+  }
   if (chatForm) {
     chatForm.addEventListener("submit", async (ev) => {
       ev.preventDefault();
@@ -595,33 +684,51 @@
       if (!msg) return;
       const sendBtn = document.getElementById("chatSend");
       sendBtn.disabled = true;
+      sendBtn.textContent = "Sending…";
       // Prior turns only — server adds the current message itself.
       const prior = chatHistory.slice();
       appendChat("you", msg);
       input.value = "";
+      setChatStatus("Thinking…", "pending");
       try {
         const data = await post("/api/chat", {
           message: msg,
           seed_notion: !!(seed && seed.checked),
           history: prior,
         });
-        if (data.local_reply) appendChat("local", data.local_reply);
-        if (data.escalated && data.cloud_reply) appendChat("cloud", `[${data.provider || "cloud"}] ${data.cloud_reply}`);
+        if (data.local_reply) {
+          appendChat("local", data.local_reply, { label: "Jetson" });
+        }
+        if (data.escalated && data.cloud_reply) {
+          const provider = data.provider || "cloud";
+          appendChat("cloud", data.cloud_reply, { provider, label: provider });
+        }
         if (data.seeded_task) {
-          appendChat("system", `Added to Notion: ${data.seeded_task}`);
+          appendChat("system", `Added to the Notion board: ${data.seeded_task}`, { label: "Board" });
           loadBoard().catch(() => {});
         }
-        toast(data.escalated ? `Escalated to ${data.provider || "premium"}` : "Hawkeye replied");
+        if (data.escalated) {
+          setChatStatus(`Escalated · ${data.provider || "cloud"}`, "escalate");
+          toast(`Escalated to ${data.provider || "premium"}`);
+        } else {
+          setChatStatus("Local · Jetson", "local");
+          toast("Hawkeye replied");
+        }
       } catch (e) {
-        appendChat("system", String(e.message || e));
+        appendChat("system", String(e.message || e), { label: "Error" });
+        setChatStatus("Could not reply", "error");
         toast(String(e.message || e));
       } finally {
         sendBtn.disabled = false;
+        sendBtn.textContent = "Send";
       }
     });
   }
 
-  loadProjects().catch((e) => toast(String(e.message || e)));
+  loadProjects().catch((e) => {
+    toast(String(e.message || e));
+    renderBoardError(String(e.message || e));
+  });
   refreshOps().catch((e) => toast(String(e.message || e)));
   loadLocalOnlySetting().catch(() => {});
   loadInbox().catch(() => {});
@@ -1155,6 +1262,7 @@
       const btn = document.getElementById("logoutBtn");
       const accountBtn = document.getElementById("accountBtn");
       const messagesBtn = document.getElementById("messagesBtn");
+      const connectionsBtn = document.getElementById("connectionsBtn");
       if (btn && auth.private_mode) {
         btn.hidden = false;
         btn.addEventListener("click", async () => {
@@ -1176,6 +1284,10 @@
       if (messagesBtn && (auth.authed || !auth.private_mode)) {
         messagesBtn.hidden = false;
         messagesBtn.addEventListener("click", () => openAccount("messages"));
+      }
+      if (connectionsBtn && (auth.authed || !auth.private_mode)) {
+        connectionsBtn.hidden = false;
+        connectionsBtn.addEventListener("click", () => openAccount("connections"));
       }
       if (auth.profile && !auth.profile.profile_complete && auth.authed) {
         openAccount("profile");

@@ -210,6 +210,11 @@ class UiHelpersTests(unittest.TestCase):
             self.assertIn(token, html)
             self.assertIn("localOnlyToggle", html)
             self.assertIn("Local only", html)
+            self.assertIn("connectionsBtn", html)
+            self.assertIn("chatEmpty", html)
+            self.assertIn("chatStatus", html)
+            self.assertIn("Talk to Hawkeye", html)
+            self.assertIn("Engineering command center", html)
 
             with request.urlopen(f"http://127.0.0.1:{port}/api/settings", timeout=5) as resp:
                 settings = json.loads(resp.read().decode())

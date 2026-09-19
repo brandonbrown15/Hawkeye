@@ -2,15 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b1220" />
   <title>{{PRODUCT}} · BrownHawke Engineering</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@400;700&family=Source+Sans+3:wght@400;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/app.css" />
 </head>
-<body>
+<body class="app">
   <div class="atmosphere" aria-hidden="true"></div>
+  <a class="skip-link" href="#workspace">Skip to workspace</a>
 
   <header class="top">
     <div class="brand-block">
@@ -23,13 +25,18 @@
       />
       <div class="brand-copy">
         <p class="product">{{PRODUCT}}</p>
-        <p class="tagline">Team project management — Notion boards live here; Hawkeye plans and drives the work.</p>
+        <p class="tagline">Engineering command center</p>
       </div>
     </div>
+    <nav class="app-nav" aria-label="Primary">
+      <a class="app-nav-link" href="#notionKanban">Boards</a>
+      <a class="app-nav-link" href="#chatHeading">Chat</a>
+      <a class="app-nav-link" href="#inboxHeading">Inbox</a>
+    </nav>
     <div class="header-actions">
       <div class="live-chip" id="liveChip" data-phase="idle">
         <span class="pulse" aria-hidden="true"></span>
-        <span id="phaseLabel">idle</span>
+        <span id="phaseLabel">Ready</span>
       </div>
       <label class="local-only-switch" title="Per signed-in account: when on, your chats stay on free Ollama (no Cursor/Grok)">
         <input type="checkbox" id="localOnlyToggle" />
@@ -39,11 +46,14 @@
           <span class="switch-hint" id="localOnlyHint">your account</span>
         </span>
       </label>
-      <button type="button" class="btn ghost compact" id="messagesBtn" hidden>
-        Messages <span class="msg-badge" id="msgBadge" hidden>0</span>
-      </button>
-      <button type="button" class="btn ghost compact" id="accountBtn" hidden>Account</button>
-      <button type="button" class="btn ghost compact" id="logoutBtn" hidden>Sign out</button>
+      <div class="header-btns">
+        <button type="button" class="btn ghost compact" id="connectionsBtn" hidden>Connections</button>
+        <button type="button" class="btn ghost compact" id="messagesBtn" hidden>
+          Messages <span class="msg-badge" id="msgBadge" hidden>0</span>
+        </button>
+        <button type="button" class="btn ghost compact" id="accountBtn" hidden>Account</button>
+        <button type="button" class="btn ghost compact" id="logoutBtn" hidden>Sign out</button>
+      </div>
     </div>
   </header>
 
@@ -126,46 +136,84 @@
     </form>
   </dialog>
 
-  <main class="pm-main">
-    <section class="pm-toolbar" aria-label="Board controls">
-      <div class="view-tabs" role="tablist">
-        <button type="button" class="view-tab is-active" data-view="notion">Notion boards</button>
-        <button type="button" class="view-tab" data-view="mine">My projects</button>
+  <main class="pm-main" id="workspace">
+    <div class="workspace">
+      <div class="workspace-board">
+        <section class="pm-toolbar" aria-label="Board controls">
+          <div class="view-tabs" role="tablist">
+            <button type="button" class="view-tab is-active" data-view="notion">Notion boards</button>
+            <button type="button" class="view-tab" data-view="mine">My projects</button>
+          </div>
+          <div class="board-tabs" id="boardTabs" role="tablist"></div>
+          <div class="pm-filters">
+            <label class="sr-only" for="statusFilter">Status</label>
+            <select id="statusFilter" aria-label="Filter by status">
+              <option value="all">All statuses</option>
+              <option value="Ready">Ready</option>
+              <option value="Running">Running</option>
+              <option value="Needs review">Needs review</option>
+              <option value="Blocked">Blocked</option>
+              <option value="Backlog">Backlog</option>
+              <option value="Done">Done</option>
+              <option value="Now">Now</option>
+              <option value="Next">Next</option>
+            </select>
+            <button type="button" class="btn compact" id="refreshBoard">Refresh</button>
+          </div>
+        </section>
+
+        <p class="pm-banner" id="pmBanner" hidden></p>
+
+        <section class="pm-summary" aria-label="Board summary" id="notionSummary">
+          <div class="count-pills" id="countPills"></div>
+          <p class="section-note" id="boardMeta">Loading Notion board…</p>
+        </section>
+
+        <section class="kanban" aria-labelledby="boardHeading" id="notionKanban">
+          <h1 id="boardHeading" class="sr-only">Project board</h1>
+          <div class="kanban-columns" id="kanban">
+            <div class="state-card" id="boardLoading">
+              <p class="state-title">Loading the board</p>
+              <p class="state-copy">Pulling Notion columns and tasks…</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="mine-projects" id="mineProjects" hidden>
+          <p class="section-note">Projects you own or that teammates shared with you. Open Account → Projects to create or share.</p>
+          <div id="mineProjectsList" class="account-projects"></div>
+        </section>
       </div>
-      <div class="board-tabs" id="boardTabs" role="tablist"></div>
-      <div class="pm-filters">
-        <label class="sr-only" for="statusFilter">Status</label>
-        <select id="statusFilter" aria-label="Filter by status">
-          <option value="all">All statuses</option>
-          <option value="Ready">Ready</option>
-          <option value="Running">Running</option>
-          <option value="Needs review">Needs review</option>
-          <option value="Blocked">Blocked</option>
-          <option value="Backlog">Backlog</option>
-          <option value="Done">Done</option>
-          <option value="Now">Now</option>
-          <option value="Next">Next</option>
-        </select>
-        <button type="button" class="btn compact" id="refreshBoard">Refresh</button>
-      </div>
-    </section>
 
-    <p class="pm-banner" id="pmBanner" hidden></p>
-
-    <section class="pm-summary" aria-label="Board summary" id="notionSummary">
-      <div class="count-pills" id="countPills"></div>
-      <p class="section-note" id="boardMeta">Loading Notion board…</p>
-    </section>
-
-    <section class="kanban" aria-labelledby="boardHeading" id="notionKanban">
-      <h1 id="boardHeading" class="sr-only">Project board</h1>
-      <div class="kanban-columns" id="kanban"></div>
-    </section>
-
-    <section class="mine-projects" id="mineProjects" hidden>
-      <p class="section-note">Projects you own or that teammates shared with you. Open Account → Projects to create or share.</p>
-      <div id="mineProjectsList" class="account-projects"></div>
-    </section>
+      <section class="chat workspace-chat" aria-labelledby="chatHeading">
+        <header class="chat-head">
+          <div>
+            <h2 id="chatHeading">Talk to Hawkeye</h2>
+            <p class="section-note" id="chatNote">Ask Hawkeye to plan, research, or queue work. Useful items can seed the Notion board. Local only is per signed-in account.</p>
+          </div>
+          <p class="chat-status" id="chatStatus" hidden></p>
+        </header>
+        <div id="chatLog" class="chat-log" role="log" aria-live="polite">
+          <div class="chat-empty" id="chatEmpty">
+            <p class="state-title">Ready when you are</p>
+            <p class="state-copy">Plan work, research a blocker, or queue a Notion task. Replies start on the Jetson. Hard jobs escalate only when Local only is off.</p>
+            <div class="chat-suggestions" id="chatSuggestions">
+              <button type="button" class="chip-btn" data-suggest="What is blocked on the board right now?">What's blocked?</button>
+              <button type="button" class="chip-btn" data-suggest="Deep research Cloudflare Tunnel DNS for Jetson.">Research tunnel DNS</button>
+              <button type="button" class="chip-btn" data-suggest="Draft a Ready task to harden Hawkeye login on mobile.">Queue a Ready task</button>
+            </div>
+          </div>
+        </div>
+        <form class="chat-form" id="chatForm">
+          <label for="chatInput" class="sr-only">Message</label>
+          <textarea id="chatInput" rows="3" placeholder="Message Hawkeye… Enter to send, Shift+Enter for a new line." required></textarea>
+          <div class="chat-actions">
+            <label class="check-inline"><input type="checkbox" id="chatSeed" checked /> Seed Notion when useful</label>
+            <button type="submit" class="btn primary" id="chatSend">Send</button>
+          </div>
+        </form>
+      </section>
+    </div>
 
     <aside class="task-drawer" id="taskDrawer" hidden>
       <div class="drawer-panel" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
@@ -183,20 +231,6 @@
         </div>
       </div>
     </aside>
-
-    <section class="chat" aria-labelledby="chatHeading">
-      <h2 id="chatHeading">Talk to Hawkeye</h2>
-      <p class="section-note" id="chatNote">Ask Hawkeye to plan, research, or queue work. Useful items can seed the Notion board. Say “deep research …” to fetch and read pages. Local only is per signed-in account.</p>
-      <div id="chatLog" class="chat-log" role="log" aria-live="polite"></div>
-      <form class="chat-form" id="chatForm">
-        <label for="chatInput" class="sr-only">Message</label>
-        <textarea id="chatInput" rows="3" placeholder="e.g. Deep research Cloudflare Tunnel DNS for Jetson." required></textarea>
-        <div class="chat-actions">
-          <button type="submit" class="btn primary" id="chatSend">Send</button>
-          <label class="check-inline"><input type="checkbox" id="chatSeed" checked /> Seed Notion when useful</label>
-        </div>
-      </form>
-    </section>
 
     <section class="inbox" aria-labelledby="inboxHeading">
       <div class="inbox-head">
