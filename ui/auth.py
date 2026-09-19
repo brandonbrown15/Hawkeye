@@ -307,7 +307,7 @@ def diagnose_login(username: str, password: str) -> LoginFailure | None:
         return LoginFailure(
             CODE_BAD_DOMAIN,
             f"Only @{allowed_email_domain()} work emails can sign in to Hawkeye.",
-            "This is the app login, not Cloudflare Access. "
+            "This is the Hawkeye app password, not a Cloudflare Zero Trust / Access PIN. "
             "Personal Gmail/Outlook addresses are rejected here.",
         )
     users = load_users()
