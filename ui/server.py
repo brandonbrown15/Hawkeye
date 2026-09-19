@@ -114,11 +114,17 @@ def has_env(name: str) -> bool:
     return bool(os.environ.get(name, "").strip())
 
 
-def _ready_secret(provider: str, field: str) -> bool:
+def _ready_secret(provider: str, field: str, *, email: str | None = None) -> bool:
+    """True if the signed-in vault or machine .env has this secret.
+
+    Must pass email= (or rely on set_request_user). Calling has_secret() with
+    neither ignores Account → Connections and only sees machine .env — that is
+    why live readiness showed Cursor/Grok webhook **skip** after a Connections save.
+    """
     try:
         from ui import connections
 
-        return connections.has_secret(provider, field)
+        return connections.has_secret(provider, field, email=email)
     except Exception:  # noqa: BLE001
         return False
 
@@ -146,8 +152,6 @@ def readiness(*, user: str | None = None) -> dict[str, Any]:
     except Exception as e:  # noqa: BLE001
         details = [f"health check error: {e}"]
 
-    cursor_cmd = os.environ.get("AUTOCODE_CURSOR_DELEGATE_CMD", "")
-    grok_cmd = os.environ.get("AUTOCODE_GROK_DELEGATE_CMD", "")
     # Autopilot/cloud readiness uses global LOCAL_ONLY (not per-user chat toggle).
     runtime_data = runtime.load()
     if "local_only" in runtime_data:
@@ -160,7 +164,7 @@ def readiness(*, user: str | None = None) -> dict[str, Any]:
         {
             "id": "notion",
             "label": "Notion connected",
-            "ok": _ready_secret("notion", "token"),
+            "ok": _ready_secret("notion", "token", email=user),
             "hint": "Account → Connections → Notion (or ./scripts/connect_notion.sh)",
         },
         {
@@ -172,7 +176,7 @@ def readiness(*, user: str | None = None) -> dict[str, Any]:
         {
             "id": "github",
             "label": "GitHub token",
-            "ok": _ready_secret("github", "token") or gh_authed(),
+            "ok": _ready_secret("github", "token", email=user) or gh_authed(),
             "hint": "Account → Connections → GitHub (or ./scripts/auth_github.sh)",
         },
         {"id": "hermes", "label": "Hermes CLI", "ok": hermes_ok, "hint": "./hermes/install_hermes.sh"},
@@ -180,24 +184,19 @@ def readiness(*, user: str | None = None) -> dict[str, Any]:
         {
             "id": "cursor",
             "label": "Cursor Cloud",
+            # Chat escalate reads Connections / .env. A stub overnight delegate
+            # must not force this optional check to "skip".
             "ok": local_only
-            or _ready_secret("cursor", "api_key")
-            or (
-                _ready_secret("cursor", "webhook_url")
-                and "stub" not in cursor_cmd
-            ),
+            or _ready_secret("cursor", "api_key", email=user)
+            or _ready_secret("cursor", "webhook_url", email=user),
             "hint": "Account → Connections → Cursor API key (or webhook bridge)",
             "optional": True,
         },
         {
             "id": "grok",
             "label": "Grok Bot webhook",
-            "ok": local_only
-            or (
-                _ready_secret("grok", "webhook_url")
-                and "stub" not in grok_cmd
-            ),
-            "hint": "Account → Connections → Grok (or keep LOCAL_ONLY=1)",
+            "ok": local_only or _ready_secret("grok", "webhook_url", email=user),
+            "hint": "Account → Connections → Grok webhook_url (or keep LOCAL_ONLY=1)",
             "optional": True,
         },
         {
