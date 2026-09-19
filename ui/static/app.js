@@ -603,6 +603,12 @@
 
   let chatHistory = [];
 
+  function friendlyProvider(raw, escalated) {
+    const p = String(raw || "").trim();
+    if (!p || p.toLowerCase() === "none") return escalated ? "cloud" : "Jetson";
+    return p;
+  }
+
   function setChatStatus(text, kind) {
     const el = document.getElementById("chatStatus");
     if (!el) return;
@@ -700,7 +706,7 @@
           appendChat("local", data.local_reply, { label: "Jetson" });
         }
         if (data.escalated && data.cloud_reply) {
-          const provider = data.provider || "cloud";
+          const provider = friendlyProvider(data.provider, true);
           appendChat("cloud", data.cloud_reply, { provider, label: provider });
         }
         if (data.seeded_task) {
@@ -708,8 +714,10 @@
           loadBoard().catch(() => {});
         }
         if (data.escalated) {
-          setChatStatus(`Escalated · ${data.provider || "cloud"}`, "escalate");
-          toast(`Escalated to ${data.provider || "premium"}`);
+          const provider = friendlyProvider(data.provider, true);
+          const failed = !data.provider || String(data.provider).toLowerCase() === "none";
+          setChatStatus(failed ? "Cloud unavailable" : `Escalated · ${provider}`, failed ? "error" : "escalate");
+          toast(failed ? "Cloud escalate unavailable" : `Escalated to ${provider}`);
         } else {
           setChatStatus("Local · Jetson", "local");
           toast("Hawkeye replied");

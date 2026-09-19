@@ -575,9 +575,9 @@ input:focus, select:focus, textarea:focus {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.65rem 0.75rem;
   align-items: center;
-  margin-bottom: 0.75rem;
+  margin-bottom: 0.85rem;
 }
 
 .board-tabs {
@@ -1147,6 +1147,7 @@ input:focus, select:focus, textarea:focus {
   display: flex;
   gap: 0.35rem;
   flex-wrap: wrap;
+  width: 100%;
 }
 
 .account-dialog {
@@ -1326,6 +1327,8 @@ input:focus, select:focus, textarea:focus {
 .login-card {
   width: min(440px, 100%);
   padding: 1.7rem 1.4rem 1.4rem;
+  background: #151d2e;
+  border: 1px solid rgba(158, 192, 232, 0.22);
   box-shadow: var(--shadow);
 }
 
