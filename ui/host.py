@@ -138,6 +138,31 @@ def temp_c() -> float | None:
     return round(best, 1) if best is not None else None
 
 
+def ollama_status() -> dict[str, Any]:
+    """Live Ollama process list — up/idle/loaded model. Never invent a load %."""
+    host = os.environ.get("OLLAMA_HOST", "127.0.0.1:11434").strip() or "127.0.0.1:11434"
+    try:
+        import json
+        import urllib.request
+
+        req = urllib.request.Request(f"http://{host}/api/ps", method="GET")
+        with urllib.request.urlopen(req, timeout=0.5) as resp:
+            data = json.loads(resp.read().decode())
+        models = data.get("models") if isinstance(data, dict) else None
+        names = []
+        if isinstance(models, list):
+            for item in models:
+                if isinstance(item, dict) and item.get("name"):
+                    names.append(str(item["name"]))
+        return {
+            "ollama_up": True,
+            "ollama_model": names[0] if names else "",
+            "ollama_loaded": len(names),
+        }
+    except Exception:  # noqa: BLE001
+        return {"ollama_up": False, "ollama_model": "", "ollama_loaded": 0}
+
+
 def snapshot() -> dict[str, Any]:
     gpu, gpu_src = gpu_pct()
     out: dict[str, Any] = {
@@ -151,4 +176,5 @@ def snapshot() -> dict[str, Any]:
         "ts": int(time.time()),
     }
     out.update(ram_stats())
+    out.update(ollama_status())
     return out

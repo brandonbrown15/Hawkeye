@@ -782,6 +782,7 @@ class UiHelpersTests(unittest.TestCase):
         self.assertIn('id="taskQueue"', html)
         self.assertIn('data-board-view="queue"', html)
         self.assertIn('id="hostStrip"', html)
+        self.assertIn('id="hostOllama"', html)
         self.assertIn("/api/host", js)
         self.assertIn("prefers-color-scheme: dark", css)
         self.assertIn('html[data-theme="dark"]', css)

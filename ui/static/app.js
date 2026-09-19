@@ -217,11 +217,19 @@
     return `${value}${suffix || ""}`;
   }
 
+  function shortOllama(name) {
+    const raw = String(name || "").trim();
+    if (!raw) return "";
+    const base = raw.split("/").pop() || raw;
+    return base.length > 18 ? `${base.slice(0, 16)}…` : base;
+  }
+
   function renderHost(data) {
     const cpu = document.getElementById("hostCpu");
     const gpu = document.getElementById("hostGpu");
     const ram = document.getElementById("hostRam");
     const temp = document.getElementById("hostTemp");
+    const ollama = document.getElementById("hostOllama");
     if (cpu) cpu.textContent = data.cpu_pct != null ? `${data.cpu_pct}%` : (data.load1 != null ? `load ${data.load1}` : "—");
     if (gpu) gpu.textContent = data.gpu_pct != null ? `${data.gpu_pct}%` : "—";
     if (ram) {
@@ -230,6 +238,12 @@
         : "—";
     }
     if (temp) temp.textContent = data.temp_c != null ? `${data.temp_c}°` : "—";
+    if (ollama) {
+      if (data.ollama_up && data.ollama_model) ollama.textContent = shortOllama(data.ollama_model);
+      else if (data.ollama_up) ollama.textContent = "idle";
+      else if (data.ollama_up === false) ollama.textContent = "down";
+      else ollama.textContent = "—";
+    }
   }
 
   async function loadHost() {

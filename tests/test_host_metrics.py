@@ -54,11 +54,34 @@ class HostMetricsTests(unittest.TestCase):
     def test_snapshot_has_ok_and_no_fake_gpu(self) -> None:
         with mock.patch.object(host_mod, "gpu_pct", return_value=(None, None)):
             with mock.patch.object(host_mod, "temp_c", return_value=None):
-                snap = host_mod.snapshot()
+                with mock.patch.object(
+                    host_mod,
+                    "ollama_status",
+                    return_value={"ollama_up": False, "ollama_model": "", "ollama_loaded": 0},
+                ):
+                    snap = host_mod.snapshot()
         self.assertTrue(snap["ok"])
         self.assertIsNone(snap["gpu_pct"])
         self.assertIn("cpu_pct", snap)
         self.assertIn("load1", snap)
+        self.assertFalse(snap["ollama_up"])
+
+    def test_ollama_status_from_ps(self) -> None:
+        class FakeResp:
+            def read(self) -> bytes:
+                return b'{"models":[{"name":"qwen2.5-coder:3b"}]}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        with mock.patch("urllib.request.urlopen", return_value=FakeResp()):
+            st = host_mod.ollama_status()
+        self.assertTrue(st["ollama_up"])
+        self.assertEqual(st["ollama_model"], "qwen2.5-coder:3b")
+        self.assertEqual(st["ollama_loaded"], 1)
 
 
 class HostApiTests(unittest.TestCase):
@@ -89,6 +112,7 @@ class HostApiTests(unittest.TestCase):
             self.assertIn("cpu_pct", data)
             self.assertIn("gpu_pct", data)
             self.assertIn("load1", data)
+            self.assertIn("ollama_up", data)
         finally:
             httpd.shutdown()
             httpd.server_close()
