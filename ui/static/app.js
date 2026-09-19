@@ -746,6 +746,8 @@
     if (tunnel) tunnel.placeholder = data.tunnel_token_set ? "(saved — enter to replace)" : "Paste Cloudflare install token";
     const mem = document.getElementById("machMemKey");
     if (mem) mem.placeholder = data.memory_key_set ? "(set — enter to rotate)" : "Long passphrase for encryption";
+    const gh = document.getElementById("machGithubToken");
+    if (gh) gh.placeholder = auto.github_token_ready ? "(saved in .env — enter to replace)" : "ghp_… or github_pat_…";
   }
 
   function renderConnections(data) {
@@ -1009,16 +1011,19 @@
       };
       const tunnel = document.getElementById("machTunnel")?.value?.trim();
       const mem = document.getElementById("machMemKey")?.value?.trim();
+      const gh = document.getElementById("machGithubToken")?.value?.trim();
       if (tunnel) body.tunnel_token = tunnel;
       if (mem) {
         body.memory_key = mem;
         if (document.getElementById("machForceMem")?.checked) body.force_memory_key = "1";
       }
+      if (gh) body.github_token = gh;
       try {
         const out = await post("/api/machine", body);
         toast("Machine settings saved");
         if (document.getElementById("machTunnel")) document.getElementById("machTunnel").value = "";
         if (document.getElementById("machMemKey")) document.getElementById("machMemKey").value = "";
+        if (document.getElementById("machGithubToken")) document.getElementById("machGithubToken").value = "";
         renderMachine(out);
       } catch (e) {
         toast(String(e.message || e));

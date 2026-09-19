@@ -93,6 +93,8 @@
         <label class="inline-check"><input type="checkbox" id="machUpdateOn" checked /> Pull GitHub every 5 minutes + restart UI</label>
         <label for="machHost">Public host</label>
         <input id="machHost" placeholder="hawkeye.brownhawke.engineering" />
+        <label for="machGithubToken">GitHub PAT (auto-update HTTPS fetch)</label>
+        <input id="machGithubToken" type="password" autocomplete="off" placeholder="ghp_… or github_pat_… (saved to .env for the timer)" />
         <div class="conn-actions">
           <button type="button" class="btn primary compact" id="machSave">Save machine settings</button>
           <button type="button" class="btn compact" id="machProvisionNotion">Provision Notion DBs</button>

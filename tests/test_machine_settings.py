@@ -147,11 +147,12 @@ class MachineSettingsTests(unittest.TestCase):
         script_dir.mkdir(parents=True, exist_ok=True)
         (script_dir / "hawkeye_self_update.sh").write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
         fake = mock.Mock(returncode=0, stdout="up-to-date", stderr="")
-        with mock.patch.object(machine_settings.subprocess, "run", return_value=fake) as run:
-            out = machine_settings.apply(
-                "brandon@brownhawke.engineering",
-                {"force_update": "1"},
-            )
+        with mock.patch.object(machine_settings, "repair_git_https_fetch", return_value={"ok": True, "steps": []}):
+            with mock.patch.object(machine_settings.subprocess, "run", return_value=fake) as run:
+                out = machine_settings.apply(
+                    "brandon@brownhawke.engineering",
+                    {"force_update": "1"},
+                )
         force_calls = [
             c
             for c in run.call_args_list
@@ -160,6 +161,24 @@ class MachineSettingsTests(unittest.TestCase):
         self.assertTrue(force_calls)
         self.assertEqual(force_calls[0].kwargs["env"]["GITHUB_TOKEN"], "ghp_from_env_test")
         self.assertIn("force_update_ok", out["applied"])
+
+    def test_github_token_machine_field(self) -> None:
+        out = machine_settings.apply(
+            "brandon@brownhawke.engineering",
+            {"github_token": "ghp_machine_field_test"},
+        )
+        self.assertIn("GITHUB_TOKEN=ghp_machine_field_test", self.env_path.read_text(encoding="utf-8"))
+        self.assertIn("github_token", out["applied"])
+
+    def test_public_host_strips_injection(self) -> None:
+        out = machine_settings.apply(
+            "brandon@brownhawke.engineering",
+            {"public_host": "hawkeye.brownhawke.engineering; GITHUB_TOKEN=evil"},
+        )
+        text = self.env_path.read_text(encoding="utf-8")
+        self.assertIn("AUTOCODE_PUBLIC_HOST=hawkeye.brownhawke.engineering", text)
+        self.assertNotIn("evil", text)
+        self.assertTrue(out["public_host"].startswith("hawkeye") or "hawkeye" in out.get("public_host", ""))
 
     def test_normalize_notion_id_rejects_junk(self) -> None:
         with self.assertRaises(ValueError):

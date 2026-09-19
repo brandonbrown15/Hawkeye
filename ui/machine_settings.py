@@ -170,6 +170,90 @@ def _self_update_env(email: str | None = None) -> dict[str, str]:
     return env
 
 
+def repair_git_https_fetch(email: str | None = None) -> dict[str, Any]:
+    """Rewrite origin to HTTPS + PAT auth so fetch works without SSH keys.
+
+    Safe to call repeatedly. Used by Force update before hawkeye_self_update.sh
+    so Jetsons stuck on SSH-only remotes can unlock over the Cloudflare tunnel UI.
+    """
+    sync_github_token_from_connections(email)
+    token = (os.environ.get("GITHUB_TOKEN") or os.environ.get("GH_TOKEN") or "").strip()
+    if not token:
+        token = (_read_env_file().get("GITHUB_TOKEN") or _read_env_file().get("GH_TOKEN") or "").strip()
+    if not token:
+        return {"ok": False, "error": "no GITHUB_TOKEN — save Account → Connections → GitHub first"}
+
+    remote = os.environ.get("HAWKEYE_UPDATE_REMOTE", "origin").strip() or "origin"
+    steps: list[str] = []
+    try:
+        url_proc = subprocess.run(
+            ["git", "remote", "get-url", remote],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        url = (url_proc.stdout or "").strip()
+        repo = "brandonbrown15/Hawkeye"
+        m = re.search(r"github\.com[:/]+([^/]+)/([^/.]+)(?:\.git)?", url)
+        if m:
+            repo = f"{m.group(1)}/{m.group(2)}"
+        https = f"https://github.com/{repo}.git"
+        set_url = subprocess.run(
+            ["git", "remote", "set-url", remote, https],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if set_url.returncode != 0:
+            return {
+                "ok": False,
+                "error": (set_url.stderr or set_url.stdout or "git remote set-url failed").strip()[:300],
+                "steps": steps,
+            }
+        steps.append(f"remote={https}")
+
+        import base64
+
+        basic = base64.b64encode(f"x-access-token:{token}".encode()).decode().strip()
+        hdr = subprocess.run(
+            ["git", "config", "--local", "http.https://github.com/.extraheader", f"AUTHORIZATION: basic {basic}"],
+            cwd=str(ROOT),
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=False,
+        )
+        if hdr.returncode != 0:
+            return {
+                "ok": False,
+                "error": (hdr.stderr or "git config extraheader failed").strip()[:300],
+                "steps": steps,
+            }
+        steps.append("extraheader=ok")
+
+        branch = os.environ.get("HAWKEYE_UPDATE_BRANCH", "main").strip() or "main"
+        fetch = subprocess.run(
+            ["git", "fetch", "--quiet", remote, branch],
+            cwd=str(ROOT),
+            env=_self_update_env(email),
+            capture_output=True,
+            text=True,
+            timeout=120,
+            check=False,
+        )
+        if fetch.returncode != 0:
+            err = (fetch.stderr or fetch.stdout or "git fetch failed").strip()[:400]
+            return {"ok": False, "error": err, "steps": steps}
+        steps.append(f"fetch={remote}/{branch}")
+        return {"ok": True, "repo": repo, "steps": steps}
+    except (OSError, subprocess.TimeoutExpired) as e:
+        return {"ok": False, "error": str(e), "steps": steps}
+
+
 def _run_self_update(*args: str, email: str | None = None, timeout: int = 600) -> subprocess.CompletedProcess[str]:
     script = ROOT / "scripts" / "hawkeye_self_update.sh"
     if not script.is_file():
@@ -333,8 +417,17 @@ def apply(email: str, updates: dict[str, Any]) -> dict[str, Any]:
     if "public_host" in updates and updates["public_host"] is not None:
         host = str(updates["public_host"]).strip()
         if host:
-            env_updates["AUTOCODE_PUBLIC_HOST"] = host
-            actions.append("public_host")
+            # Keep hostname single-line (reject shell/env injection leftovers).
+            host = host.split("\n", 1)[0].split(";", 1)[0].strip()
+            if host:
+                env_updates["AUTOCODE_PUBLIC_HOST"] = host
+                actions.append("public_host")
+
+    if "github_token" in updates and updates["github_token"] is not None:
+        tok = str(updates["github_token"]).strip()
+        if tok:
+            env_updates["GITHUB_TOKEN"] = tok
+            actions.append("github_token")
 
     if "notion_hub_page" in updates and updates["notion_hub_page"] is not None:
         hub = str(updates["notion_hub_page"]).strip()
@@ -412,7 +505,14 @@ def apply(email: str, updates: dict[str, Any]) -> dict[str, Any]:
             raise ValueError(f"Notion provision failed: {e}") from e
 
     force_update = str(updates.get("force_update") or "").lower() in ("1", "true", "yes")
+    repair_git = str(updates.get("repair_git") or "").lower() in ("1", "true", "yes")
     force_log = ""
+    repair_result: dict[str, Any] | None = None
+    if force_update or repair_git:
+        repair_result = repair_git_https_fetch(email)
+        actions.append("repair_git_ok" if repair_result.get("ok") else f"repair_git_fail:{repair_result.get('error', '')[:80]}")
+        if repair_git and not force_update and not repair_result.get("ok"):
+            raise ValueError(f"git repair failed: {repair_result.get('error')}")
     if force_update:
         try:
             proc = _run_self_update("--force", email=email, timeout=600)
@@ -446,6 +546,8 @@ def apply(email: str, updates: dict[str, Any]) -> dict[str, Any]:
         out["ollama"] = ollama_result
     if force_log:
         out["force_update_log"] = force_log
+    if repair_result is not None:
+        out["repair_git"] = repair_result
     if provision_log:
         out["provision_notion_log"] = provision_log
     return out
