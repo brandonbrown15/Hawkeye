@@ -1210,9 +1210,16 @@
   });
 
   try {
-    const wanted = new URLSearchParams(location.search).get("pane")
-      || sessionStorage.getItem("hawkeye-pane");
-    if (wanted) setPane(wanted);
+    const q = new URLSearchParams(location.search).get("pane");
+    if (q) {
+      setPane(q);
+    } else if (window.matchMedia("(max-width: 980px)").matches) {
+      // Phone: never land on a long board scroll. ?pane= still wins.
+      setPane("chat");
+    } else {
+      const stored = sessionStorage.getItem("hawkeye-pane");
+      if (stored) setPane(stored);
+    }
   } catch (_) { /* ignore */ }
 
   document.querySelectorAll(".view-tab").forEach((btn) => {
