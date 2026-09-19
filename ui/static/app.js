@@ -885,7 +885,9 @@
         if (localFailed) {
           appendChat("system", data.local_error, { label: "Ollama", error: true });
         } else if (data.local_reply) {
-          appendChat("local", data.local_reply, { label: "Jetson" });
+          const localLabel = data.reply_label
+            || (data.local_only ? "Jetson" : (data.brave_search_configured ? "Hawkeye · Brave" : "Hawkeye"));
+          appendChat("local", data.local_reply, { label: localLabel });
         }
         if (data.escalated && (data.cloud_reply || data.cloud_error)) {
           if (cloudFailed) {
@@ -916,7 +918,12 @@
           setChatStatus(cloudFailed ? "Cloud unavailable" : `Escalated · ${provider}`, cloudFailed ? "error" : "escalate");
           toast(cloudFailed ? (data.cloud_error || "Cloud escalate unavailable") : `Escalated to ${provider}`);
         } else {
-          setChatStatus("Local · Jetson", "local");
+          const status = data.status_label
+            || (data.local_only
+              ? "Local · Jetson"
+              : (data.brave_search_configured ? "Hawkeye · Brave ready" : "Hawkeye"));
+          const kind = data.local_only ? "local" : (data.brave_search_configured ? "web" : "local");
+          setChatStatus(status, kind);
           toast("Hawkeye replied");
         }
       } catch (e) {

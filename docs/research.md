@@ -24,7 +24,7 @@ Force always-on with `HAWKEYE_RESEARCH_ALWAYS=1` (noisy; not recommended).
 | Off | configured | Brave Search runs when the operator asks |
 | Off | missing | DuckDuckGo HTML fallback |
 
-If Brave is connected and Local only is **off**, Hawkeye must not claim it has “no internet.” The host injects Brave results into the system prompt.
+If Brave is connected and Local only is **off**, Hawkeye must not claim it has “no internet.” Interactive chat calls Brave in **snippet-fast** mode (no page fetches) unless the operator says `deep research` / `go deep`, so the 25s UI timeout does not abort before results land. The host injects Brave results into the system prompt and rewrites replies that still deny web access. The chat badge shows **Hawkeye · Brave** (or **Brave ready**), not **Local · Jetson**.
 
 The research checklist item stays optional (`HAWKEYE_RESEARCH_ENABLED`). The key itself is preferred from **Account → Connections → Brave**, then machine `.env`.
 

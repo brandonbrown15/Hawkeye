@@ -884,17 +884,23 @@ def _research_context(
     """Optional web research when the operator asks for facts/docs.
 
     Local only means no external web (Brave / DuckDuckGo / page fetch).
+    Interactive chat uses snippet-fast Brave unless the operator asks to go deep.
     """
     if not env_truthy("HAWKEYE_RESEARCH_ENABLED", "1"):
         return "", None
     try:
-        from research import research, wants_research
-        from research.web import brave_configured, format_web_policy_for_prompt
+        from research import research
+        from research.web import (
+            brave_configured,
+            format_web_policy_for_prompt,
+            should_research,
+            wants_deep_explicit,
+        )
 
-        if not wants_research(message):
+        brave = brave_configured(email=email)
+        if not should_research(message, brave=brave and not local_only):
             return "", None
         if local_only:
-            brave = brave_configured(email=email)
             return format_web_policy_for_prompt(local_only=True, brave=brave), {
                 "skipped": "local_only",
                 "query": message,
@@ -906,12 +912,100 @@ def _research_context(
         result = research(
             message,
             limit=int(os.environ.get("HAWKEYE_RESEARCH_TOP_K", "5") or "5"),
+            deep=wants_deep_explicit(message),
             email=email,
         )
-        return result.format_for_prompt(), result.to_dict()
+        payload = result.to_dict()
+        payload["brave_configured"] = brave
+        return result.format_for_prompt(), payload
     except Exception as e:  # noqa: BLE001
         print(f"[ui-chat] research failed: {e}")
         return "", {"error": str(e)}
+
+
+def chat_route_labels(
+    *,
+    local_only: bool,
+    brave: bool,
+    research_payload: dict[str, Any] | None,
+    escalated: bool,
+    provider: str,
+) -> dict[str, str]:
+    """Chat chip + status. Never say Jetson-only when Brave/cloud is in play."""
+    if escalated:
+        label = (provider or "cloud").strip() or "cloud"
+        if label.lower() in ("none", "error", "local-only"):
+            label = "cloud"
+        return {"reply_label": label, "status_label": f"Escalated · {label}"}
+    if local_only:
+        return {"reply_label": "Jetson", "status_label": "Local · Jetson"}
+    used = str((research_payload or {}).get("provider") or "").lower()
+    sources = (research_payload or {}).get("sources") or []
+    if "brave" in used and sources:
+        return {"reply_label": "Brave", "status_label": "Hawkeye · Brave"}
+    if brave:
+        return {"reply_label": "Hawkeye", "status_label": "Hawkeye · Brave ready"}
+    return {"reply_label": "Hawkeye", "status_label": "Hawkeye"}
+
+
+def _cite_research(research_payload: dict[str, Any] | None, message: str) -> str:
+    if not research_payload or not research_payload.get("sources"):
+        return ""
+    try:
+        from research.web import ResearchResult, ResearchSource
+
+        sources = [
+            ResearchSource(
+                title=str(s.get("title") or ""),
+                url=str(s.get("url") or ""),
+                snippet=str(s.get("snippet") or ""),
+                excerpt=str(s.get("excerpt") or ""),
+            )
+            for s in research_payload["sources"]
+            if isinstance(s, dict)
+        ]
+        return ResearchResult(
+            query=research_payload.get("query") or message,
+            sources=sources,
+            provider=str(research_payload.get("provider") or ""),
+        ).format_for_chat()
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _correct_no_web_reply(
+    local_reply: str,
+    *,
+    message: str,
+    stay_local: bool,
+    brave: bool,
+    research_payload: dict[str, Any] | None,
+) -> str:
+    """3B models deny the web even when Brave ran — rewrite those claims."""
+    from research.web import asks_web_access, claims_no_web_access, scrub_no_web_claims
+
+    if stay_local or not brave:
+        return local_reply
+    cite = _cite_research(research_payload, message)
+    if asks_web_access(message):
+        base = (
+            "Yes. Local only is off and Brave Search is connected — "
+            "I can search the web when you ask."
+        )
+        return f"{base}\n\n{cite}" if cite else base
+    if not claims_no_web_access(local_reply):
+        return local_reply
+    cleaned = scrub_no_web_claims(local_reply)
+    prefix = (
+        "Brave Search is connected (Local only is off). "
+        "I do have web access in this session."
+    )
+    parts = [prefix]
+    if cleaned:
+        parts.append(cleaned)
+    if cite and "http" not in (cleaned or "").lower():
+        parts.append(cite)
+    return "\n\n".join(parts)
 
 
 def _persist_memory(
@@ -1108,6 +1202,19 @@ def handle_chat(
             local_error = _friendly_local_error(err)
             local_reply = local_error
     if not local_error:
+        # Citations + no-internet rewrite BEFORE escalate. "I cannot search"
+        # must not kick Cursor when Brave is connected and Local only is off.
+        if research_payload and research_payload.get("sources"):
+            cite_block = _cite_research(research_payload, message)
+            if cite_block and "http" not in local_reply.lower():
+                local_reply = f"{local_reply.rstrip()}\n\n{cite_block}"
+        local_reply = _correct_no_web_reply(
+            local_reply,
+            message=message,
+            stay_local=stay_local,
+            brave=brave,
+            research_payload=research_payload,
+        )
         escalated = _should_escalate(message, local_reply, history=prior)
     elif not _is_trivial_chat(message) and (
         _should_escalate(message, "", history=prior) or len(message.strip()) >= 60
@@ -1145,32 +1252,6 @@ def handle_chat(
             )
             cloud_reply = cloud_error
             provider = "error"
-
-    # Surface citations in the local reply when research ran and model omitted them.
-    if research_payload and research_payload.get("sources") and not escalated:
-        cite_block = ""
-        try:
-            from research.web import ResearchResult, ResearchSource
-
-            sources = [
-                ResearchSource(
-                    title=str(s.get("title") or ""),
-                    url=str(s.get("url") or ""),
-                    snippet=str(s.get("snippet") or ""),
-                    excerpt=str(s.get("excerpt") or ""),
-                )
-                for s in research_payload["sources"]
-                if isinstance(s, dict)
-            ]
-            cite_block = ResearchResult(
-                query=research_payload.get("query") or message,
-                sources=sources,
-                provider=str(research_payload.get("provider") or ""),
-            ).format_for_chat()
-        except Exception:  # noqa: BLE001
-            cite_block = ""
-        if cite_block and "http" not in local_reply.lower():
-            local_reply = f"{local_reply.rstrip()}\n\n{cite_block}"
 
     seeded_task = None
     if seed_notion:
@@ -1263,6 +1344,13 @@ def handle_chat(
         "memory_id": memory_id,
         "memory_hits": memory_hits,
         "research": research_payload,
+        **chat_route_labels(
+            local_only=stay_local,
+            brave=brave,
+            research_payload=research_payload,
+            escalated=escalated,
+            provider=provider,
+        ),
         **web_search_status(user=email),
     }
 

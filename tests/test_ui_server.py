@@ -680,8 +680,11 @@ class UiHelpersTests(unittest.TestCase):
         self.assertTrue(out["research"]["sources"])
         system = ollama.call_args[0][1]
         self.assertIn("Brave Search", system)
-        self.assertIn("Never claim you have no internet", system)
+        self.assertIn("HAVE live web access", system)
         self.assertIn("https://developers.cloudflare.com", system)
+        self.assertEqual(out["reply_label"], "Brave")
+        self.assertEqual(out["status_label"], "Hawkeye · Brave")
+        self.assertNotEqual(out["status_label"], "Local · Jetson")
 
     def test_web_search_status_and_settings_flags(self) -> None:
         from ui import accounts, connections
@@ -701,6 +704,74 @@ class UiHelpersTests(unittest.TestCase):
         open_ = ui_server.web_search_status(user=brandon)
         self.assertTrue(open_["web_search_allowed"])
         self.assertIn("available", open_["web_search_hint"].lower())
+
+    def test_chat_rewrites_no_internet_when_brave_ready(self) -> None:
+        from memory.store import reset_store_for_tests
+        from research.web import ResearchResult, ResearchSource
+        from ui import accounts, connections
+
+        brandon = "brandon@brownhawke.engineering"
+        os.environ["HAWKEYE_ACCOUNTS_DIR"] = str(self.tmp / "acct-noweb")
+        os.environ["HAWKEYE_MEMORY_KEY"] = "ready-secret-key"
+        os.environ["HAWKEYE_RESEARCH_ENABLED"] = "1"
+        os.environ["HAWKEYE_RESEARCH_DEEP"] = "1"
+        os.environ["HAWKEYE_MEMORY_ENABLED"] = "1"
+        os.environ["HAWKEYE_EMBED_FORCE_HASH"] = "1"
+        os.environ["AUTOCODE_PERSONAL_LOCAL_ONLY"] = "0"
+        os.environ.pop("BRAVE_SEARCH_API_KEY", None)
+        accounts.clear_cache()
+        reset_store_for_tests(self.tmp / "noweb-mem")
+        connections.set_connection(brandon, "brave", secrets={"api_key": "brave-from-vault"})
+        runtime.set_personal_local_only(False, user=brandon)
+        fake = ResearchResult(
+            query="do you have internet",
+            provider="brave",
+            sources=[
+                ResearchSource(title="Brave", url="https://brave.com/search/api/", snippet="API"),
+            ],
+        )
+        with mock.patch.object(
+            ui_server,
+            "_ollama_chat",
+            return_value="I have no internet and cannot search the web.",
+        ):
+            with mock.patch("research.web._brave_search", return_value=fake) as brave:
+                with mock.patch("research.web._enrich_with_pages") as enrich:
+                    out = ui_server.handle_chat(
+                        "Do you have internet?",
+                        seed_notion=False,
+                        email=brandon,
+                    )
+        brave.assert_called_once()
+        enrich.assert_not_called()
+        self.assertNotIn("no internet", out["local_reply"].lower())
+        self.assertIn("Brave Search is connected", out["local_reply"])
+        self.assertIn("can search the web", out["local_reply"].lower())
+        self.assertTrue(out["web_search_allowed"])
+        self.assertNotEqual(out["status_label"], "Local · Jetson")
+        self.assertIn("Brave", out["status_label"])
+
+    def test_chat_route_labels_never_jetson_only_when_brave(self) -> None:
+        self.assertEqual(
+            ui_server.chat_route_labels(
+                local_only=True, brave=True, research_payload=None, escalated=False, provider=""
+            )["status_label"],
+            "Local · Jetson",
+        )
+        ready = ui_server.chat_route_labels(
+            local_only=False, brave=True, research_payload=None, escalated=False, provider=""
+        )
+        self.assertEqual(ready["status_label"], "Hawkeye · Brave ready")
+        self.assertNotIn("Jetson", ready["status_label"])
+        used = ui_server.chat_route_labels(
+            local_only=False,
+            brave=True,
+            research_payload={"provider": "brave", "sources": [{"url": "https://x.test"}]},
+            escalated=False,
+            provider="",
+        )
+        self.assertEqual(used["reply_label"], "Brave")
+        self.assertEqual(used["status_label"], "Hawkeye · Brave")
 
     def test_chat_uses_memory_and_research(self) -> None:
         mem_root = self.tmp / "mem"
@@ -840,6 +911,9 @@ class UiHelpersTests(unittest.TestCase):
         self.assertIn("resetChatSend", js)
         self.assertIn("Web search skipped", js)
         self.assertIn("off for Brave", js)
+        self.assertIn("status_label", js)
+        self.assertIn("Hawkeye · Brave", js)
+        self.assertIn("data.local_only", js)
         html = (ROOT / "ui/static/index.html").read_text(encoding="utf-8")
         self.assertIn("askHawkeye", html)
         self.assertIn("data-pane=\"chat\"", html)

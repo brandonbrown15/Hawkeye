@@ -17,8 +17,12 @@ from research.web import (  # noqa: E402
     ResearchSource,
     _parse_ddg_html,
     brave_configured,
+    claims_no_web_access,
     format_web_policy_for_prompt,
     research,
+    scrub_no_web_claims,
+    should_research,
+    wants_deep_explicit,
 )
 
 
@@ -105,8 +109,14 @@ class WantsResearchTests(unittest.TestCase):
         self.assertTrue(wants_research("deep search Cloudflare Tunnel"))
         self.assertTrue(wants_research("search for Cloudflare Tunnel docs"))
         self.assertTrue(wants_research("can you search NVIDIA Jetson news"))
+        self.assertTrue(wants_research("do you have internet"))
         self.assertFalse(wants_research("pause the overnight run"))
         self.assertFalse(wants_research("mark BLD-1 as Done"))
+        self.assertTrue(should_research("What's the weather in Austin?", brave=True))
+        self.assertTrue(wants_deep_explicit("deep research Cloudflare Tunnel"))
+        self.assertFalse(wants_deep_explicit("search for Cloudflare Tunnel docs"))
+        self.assertTrue(claims_no_web_access("I have no internet and cannot search."))
+        self.assertNotIn("no internet", scrub_no_web_claims("I have no internet. Use the board.").lower())
 
 
 class BravePolicyTests(unittest.TestCase):
@@ -117,8 +127,8 @@ class BravePolicyTests(unittest.TestCase):
         self.assertIn("turn Local only off", blocked)
         open_brave = format_web_policy_for_prompt(local_only=False, brave=True)
         self.assertIn("Brave Search", open_brave)
-        self.assertIn("no internet", open_brave.lower())
-        self.assertIn("Never claim", open_brave)
+        self.assertIn("HAVE live web access", open_brave)
+        self.assertIn("factual error", open_brave)
 
     def test_research_reads_connections_brave_key(self) -> None:
         import os

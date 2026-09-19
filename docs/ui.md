@@ -108,6 +108,6 @@ Set `CURSOR_API_KEY` (Cursor Dashboard → API Keys) for premium Cursor handoff.
 
 Use the **Local only** switch in the dashboard header to force free Jetson Ollama for chat (**no Cursor/Grok and no external web**, including Brave Search). The setting is **per signed-in account** (stored under that email in `state/hawkeye-runtime.json`), so `brandon@` and `mark@` can choose independently. It overrides `AUTOCODE_PERSONAL_LOCAL_ONLY` for that user until they flip it back.
 
-When Local only is on and a Brave Search key is saved under Connections, the header hint says web search needs Local only off. Turn the switch off to let chat call Brave (or DuckDuckGo if no key). See [research.md](research.md).
+When Local only is on and a Brave Search key is saved under Connections, the header hint says web search needs Local only off. Turn the switch off to let chat call Brave (or DuckDuckGo if no key). With Local only off, the chat status is **Hawkeye · Brave** / **Brave ready** — not **Local · Jetson**. See [research.md](research.md).
 
 Private personal product: **[hawkeye.md](hawkeye.md)**.
