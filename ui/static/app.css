@@ -1114,6 +1114,10 @@ input:focus, select:focus, textarea:focus {
   line-height: 1.45;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 .sr-only {
   position: absolute;
   width: 1px;

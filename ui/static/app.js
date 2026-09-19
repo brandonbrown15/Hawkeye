@@ -1090,6 +1090,10 @@
       document.getElementById("boardTabs").hidden = mine;
       document.getElementById("statusFilter").hidden = mine;
       document.getElementById("mineProjects").hidden = !mine;
+      const banner = document.getElementById("pmBanner");
+      if (banner) {
+        banner.hidden = mine || !(boardCache && (boardCache.offline || boardCache.warning));
+      }
       if (mine) {
         get("/api/account/projects").then((d) => renderMineProjects(d.projects || [])).catch((e) => toast(String(e.message || e)));
       }
